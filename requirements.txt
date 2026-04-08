@@ -1,0 +1,29 @@
+# ────────────────────────────────────────────────
+# PyTorch (CUDA 13.0) — Docker 안에서는 아래 커맨드로 설치
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+# ────────────────────────────────────────────────
+
+# Core
+torch>=2.11.0
+torchvision>=0.16.0
+
+# Dataset
+pycocotools>=2.0.7
+Pillow>=10.0.0
+
+# Detectron2 — source 빌드 필요 (Dockerfile 참조)
+# pip install git+https://github.com/facebookresearch/detectron2.git
+
+# Config
+ConfigArgParse>=1.7
+
+# Tracking
+tensorboard>=2.15.0
+
+# Visualization
+matplotlib>=3.8.0
+
+# Utils
+numpy>=1.26.0
+tqdm>=4.66.0
+scipy>=1.11.0
