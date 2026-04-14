@@ -105,6 +105,22 @@ def forward(self, images, boxes, t):
 
 ---
 
+## Git 관리 규약
+
+- 작업 단위마다 `feature/한일` 브랜치 생성 후 push
+- 예시:
+  ```bash
+  git checkout -b feature/add-voc-dataset
+  # ... 작업 ...
+  git add <파일>
+  git commit -m "feat: VOC dataset 래퍼 구현"
+  git push origin feature/add-voc-dataset
+  ```
+- 브랜치 네이밍: `feature/` 접두사 + 작업 내용 (영문 소문자, `-` 구분)
+- main 브랜치 직접 push 금지 — PR을 통해 병합
+
+---
+
 ## 주의사항
 
 - `problem_statement.md`에 정의된 box state space(`ℝ² × ℝ₊²`)와 구현이 어긋나지 않도록 주의
