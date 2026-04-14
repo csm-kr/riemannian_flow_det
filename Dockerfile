@@ -1,8 +1,8 @@
 # ────────────────────────────────────────────────
-# Base: NVIDIA CUDA 13.0 + cuDNN + Ubuntu 22.04
-# PyTorch: 2.11.0 (CUDA 13.0)
+# Base: NVIDIA CUDA 12.8.1 + cuDNN + Ubuntu 22.04
+# PyTorch: 최신 (CUDA 12.8)
 # ────────────────────────────────────────────────
-FROM nvidia/cuda:13.0-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -22,11 +22,11 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
     ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # ────────────────────────────────────────────────
-# PyTorch (CUDA 13.0)
+# PyTorch (CUDA 12.8)
 # ────────────────────────────────────────────────
 RUN pip install --upgrade pip && \
     pip install torch torchvision \
-        --index-url https://download.pytorch.org/whl/cu130
+        --index-url https://download.pytorch.org/whl/cu128
 
 # ────────────────────────────────────────────────
 # Python dependencies
@@ -43,17 +43,6 @@ RUN pip install \
     tqdm \
     scipy \
     Pillow
-
-# ────────────────────────────────────────────────
-# Detectron2 (source build — PyTorch 버전에 맞춰 빌드 필요)
-# ────────────────────────────────────────────────
-RUN pip install \
-    fvcore \
-    iopath \
-    omegaconf \
-    hydra-core \
-    antlr4-python3-runtime==4.9.3 && \
-    pip install git+https://github.com/facebookresearch/detectron2.git
 
 # ────────────────────────────────────────────────
 # Project code
