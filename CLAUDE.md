@@ -63,30 +63,13 @@ outputs/    # checkpoints, logs, figures (git 미추적)
 
 ## 자주 사용하는 명령어
 
+실행 명령어 전체는 `README.md` 참조.
+
 ```bash
 # Docker (개발용 — 코드 마운트, 수정 즉시 반영)
-docker compose up --build   # 처음 or Dockerfile 변경 시
-docker compose up           # 이후 재실행
-docker compose exec rflow bash   # 실행 중인 컨테이너 접속
-
-# 학습
-python script/train.py --config configs/coco.yaml
-python script/train.py --config configs/coco.yaml --batch_size 4 --num_steps 5
-
-# 평가
-python script/eval.py --config configs/coco.yaml --checkpoint outputs/checkpoints/best.pth
-
-# TensorBoard
-tensorboard --logdir outputs/logs
-
-# 모듈 단독 테스트 (구현 완료)
-python dataset/box_ops.py
-python dataset/voc.py --root data/voc --year 2007 --split val --download --vis_idx 0
-
-# 미구현 (구현 후 주석 해제)
-# python dataset/coco.py
-# python dataset/transforms.py
-# python model/flow_matching.py
+docker compose up --build -d   # 처음 or Dockerfile 변경 시
+docker compose up -d           # 이후 재실행
+docker compose exec rflow bash  # 실행 중인 컨테이너 접속
 ```
 
 ---

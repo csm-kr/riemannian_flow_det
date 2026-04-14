@@ -32,9 +32,82 @@ docs/       # 문제 정의, 계획, 논문 아웃라인
 outputs/    # 체크포인트, 로그, 그림 (git 미추적)
 ```
 
+## 빌드 및 환경 설정
+
+### 사전 요구사항
+
+- Docker + NVIDIA Container Toolkit
+- NVIDIA GPU (96GB VRAM 권장)
+- CUDA 호환 드라이버
+
+### Docker로 실행 (권장)
+
+```bash
+# 처음 빌드 또는 Dockerfile 변경 시
+docker compose up --build -d
+
+# 이후 재실행
+docker compose up -d
+
+# 실행 중인 컨테이너 접속
+docker compose exec rflow bash
+```
+
+빌드 과정:
+1. CUDA 12.8.1 + cuDNN 베이스 이미지 (`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`)
+2. Python 3.10, PyTorch (CUDA 12.8 빌드) 설치
+3. `requirements.txt` 의존성 설치
+4. Detectron2 소스 빌드 및 설치
+5. 코드 마운트 (`./` → `/workspace/riemannian_flow_det`)
+
+볼륨 마운트:
+- 코드: `.` → 컨테이너 내 `/workspace/riemannian_flow_det` (수정 즉시 반영)
+- 데이터: `./data` → `data/`
+- 출력: `./outputs` → `outputs/`
+
+포트:
+- `6006`: TensorBoard (`tensorboard --logdir outputs/logs`)
+
+### 로컬 설치 (Docker 미사용 시)
+
+```bash
+# PyTorch (CUDA 12.8)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# 의존성
+pip install -r requirements.txt
+```
+
 ## 실행
+
+### 학습
 
 ```bash
 python script/train.py --config configs/coco.yaml
-python script/eval.py  --config configs/coco.yaml --checkpoint outputs/checkpoints/best.pth
+python script/train.py --config configs/coco.yaml --batch_size 4 --num_steps 5
+```
+
+### 평가
+
+```bash
+python script/eval.py --config configs/coco.yaml --checkpoint outputs/checkpoints/best.pth
+```
+
+### TensorBoard
+
+```bash
+tensorboard --logdir outputs/logs
+```
+
+### 모듈 단독 테스트
+
+```bash
+# 구현 완료
+python dataset/box_ops.py
+python dataset/voc.py --root data/voc --year 2007 --split val --download --vis_idx 0
+
+# 미구현 (구현 후 주석 해제)
+# python dataset/coco.py
+# python dataset/transforms.py
+# python model/flow_matching.py
 ```
