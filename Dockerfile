@@ -34,15 +34,7 @@ RUN pip install --upgrade pip && \
 WORKDIR /workspace/riemannian_flow_det
 
 COPY requirements.txt .
-RUN pip install \
-    pycocotools \
-    ConfigArgParse \
-    tensorboard \
-    matplotlib \
-    numpy \
-    tqdm \
-    scipy \
-    Pillow
+RUN pip install -r requirements.txt
 
 # ────────────────────────────────────────────────
 # Project code
