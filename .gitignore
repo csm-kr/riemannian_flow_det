@@ -7,13 +7,5 @@ __pycache__/
 *.egg-info/
 .DS_Store
 
-# .claude — skills/commands는 추적, 나머지는 제외
-.claude/backups/
-.claude/cache/
-.claude/history.jsonl
-.claude/projects/
-.claude/session-env/
-.claude/sessions/
-.claude/settings.json
-.claude/settings.local.json
-.claude/shell-snapshots/
+# .claude — 전체 무시 (실제 파일은 유지)
+.claude/
