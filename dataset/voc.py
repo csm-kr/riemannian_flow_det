@@ -2,7 +2,7 @@
 # Role: VOC 2007/2012 detection dataset 래퍼
 # Pipeline: DataLoader → collate → model 입력
 # 의존: torchvision.datasets.VOCDetection (다운로드 + XML 파싱)
-#       detectron2.data.transforms (resize/flip augmentation)
+#       커스텀 resize/flip augmentation (detectron2 불필요)
 # Outputs per sample:
 #   image:     torch.Tensor [3, H, W], float32, normalized
 #   boxes:     torch.Tensor [N, 4],    float32, normalized cxcywh
@@ -11,14 +11,12 @@
 #   orig_size: tuple (H, W)
 
 import os
+import random
 import torch
 import numpy as np
 from PIL import Image
 from torchvision.datasets import VOCDetection as _TorchVOCDetection
 from torchvision import transforms as T
-
-# Detectron2 augmentation utilities
-from detectron2.data import transforms as D2T
 
 from dataset.box_ops import xyxy_to_cxcywh, normalize_boxes
 
@@ -37,19 +35,62 @@ VOC_CLASS_TO_IDX = {cls: i for i, cls in enumerate(VOC_CLASSES)}
 
 
 # ────────────────────────────────────────────────
-# Detectron2 기반 augmentation 빌더
+# 커스텀 augmentation 유틸
 # ────────────────────────────────────────────────
 
-def build_d2_augmentations(split: str, min_size: int = 800, max_size: int = 1333):
+def _resize_shortest_edge(
+    img_np: np.ndarray,
+    boxes_xyxy: np.ndarray,
+    min_size: int = 800,
+    max_size: int = 1333,
+):
     """
-    Detectron2 AugmentationList 반환.
-    split == "train": resize + random flip
-    split == "val"  : resize only
+    Purpose: shortest edge 기준 리사이즈 — 이미지와 boxes 동시 변환.
+    Inputs:
+        img_np:     np.ndarray [H, W, 3], uint8
+        boxes_xyxy: np.ndarray [N, 4],    float32, xyxy pixel
+        min_size:   shortest edge 목표 크기
+        max_size:   longest edge 최대 크기
+    Outputs:
+        img_resized:   np.ndarray [H', W', 3], uint8
+        boxes_resized: np.ndarray [N, 4],      float32, xyxy pixel
     """
-    augs = [D2T.ResizeShortestEdge(short_edge_length=min_size, max_size=max_size)]
-    if split == "train":
-        augs.append(D2T.RandomFlip(horizontal=True, vertical=False))
-    return D2T.AugmentationList(augs)
+    h, w = img_np.shape[:2]
+    scale = min_size / min(h, w)
+    if max(h, w) * scale > max_size:
+        scale = max_size / max(h, w)
+
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+    img_resized = np.array(Image.fromarray(img_np).resize((new_w, new_h), Image.BILINEAR))
+
+    boxes_resized = boxes_xyxy * scale if len(boxes_xyxy) > 0 else boxes_xyxy.copy()
+    return img_resized, boxes_resized
+
+
+def _random_flip(img_np: np.ndarray, boxes_xyxy: np.ndarray, p: float = 0.5):
+    """
+    Purpose: 수평 flip (확률 p) — 이미지와 boxes 동시 변환.
+    Inputs:
+        img_np:     np.ndarray [H, W, 3]
+        boxes_xyxy: np.ndarray [N, 4], float32, xyxy pixel
+        p:          flip 확률
+    Outputs:
+        img_out:    np.ndarray [H, W, 3]
+        boxes_out:  np.ndarray [N, 4], float32, xyxy pixel
+    """
+    if random.random() >= p:
+        return img_np, boxes_xyxy
+
+    img_out = img_np[:, ::-1, :].copy()
+    if len(boxes_xyxy) == 0:
+        return img_out, boxes_xyxy.copy()
+
+    w = img_np.shape[1]
+    boxes_out = boxes_xyxy.copy()
+    boxes_out[:, 0] = w - boxes_xyxy[:, 2]
+    boxes_out[:, 2] = w - boxes_xyxy[:, 0]
+    return img_out, boxes_out
 
 
 # ────────────────────────────────────────────────
@@ -98,7 +139,8 @@ class VOCDetection(torch.utils.data.Dataset):
 
         self.split = split
         self.skip_difficult = skip_difficult
-        self.augmentations = build_d2_augmentations(split, min_size, max_size)
+        self.min_size = min_size
+        self.max_size = max_size
         self.normalize = T.Normalize(mean=mean, std=std)
         self.to_tensor = T.ToTensor()
 
@@ -112,12 +154,11 @@ class VOCDetection(torch.utils.data.Dataset):
         # XML annotation 파싱
         boxes_xyxy, labels = self._parse_annotation(target, orig_w, orig_h)
 
-        # Detectron2 augmentation 적용
+        # Augmentation 적용
         img_np = np.array(img_pil)  # [H, W, 3], uint8
-        aug_input = D2T.AugInput(image=img_np, boxes=boxes_xyxy)
-        transforms = self.augmentations(aug_input)
-        img_aug   = aug_input.image    # [H', W', 3]
-        boxes_aug = aug_input.boxes    # [N, 4], xyxy pixel (augmented)
+        img_aug, boxes_aug = _resize_shortest_edge(img_np, boxes_xyxy, self.min_size, self.max_size)
+        if self.split == "train":
+            img_aug, boxes_aug = _random_flip(img_aug, boxes_aug)
 
         aug_h, aug_w = img_aug.shape[:2]
 
@@ -189,61 +230,50 @@ class VOCDetection(torch.utils.data.Dataset):
 
 def visualize_sample(sample: dict, idx: int = 0, save_path: str = None):
     """
-    Dataset sample을 박스와 함께 시각화.
+    Dataset sample을 박스와 함께 시각화 (cv2 기반).
 
     Inputs:
         sample:    __getitem__ 반환값
         idx:       표시용 인덱스
-        save_path: None이면 plt.show(), 경로 지정 시 저장
+        save_path: None이면 창 표시 후 아무 키나 누르면 종료,
+                   경로 지정 시 파일 저장
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as patches
+    import cv2
 
-    # ImageNet denormalize
+    # ImageNet denormalize → uint8 BGR
     mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-    img = sample["image"] * std + mean          # [3, H, W]
-    img = img.clamp(0, 1).permute(1, 2, 0).numpy()  # [H, W, 3]
+    img_t = (sample["image"] * std + mean).clamp(0, 1)            # [3, H, W]
+    img_np = (img_t.permute(1, 2, 0).numpy() * 255).astype(np.uint8)  # [H, W, 3] RGB
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-    h, w = img.shape[:2]
+    h, w = img_bgr.shape[:2]
     boxes  = sample["boxes"]   # [N, 4], normalized cxcywh
     labels = sample["labels"]  # [N]
 
-    fig, ax = plt.subplots(1, figsize=(10, 8))
-    ax.imshow(img)
-    ax.set_title(f"VOC sample #{idx}  |  {len(boxes)} objects")
-
     for box, label in zip(boxes, labels):
         cx, cy, bw, bh = box.tolist()
-        # normalized → pixel
-        px = (cx - bw / 2) * w
-        py = (cy - bh / 2) * h
-        pw = bw * w
-        ph = bh * h
+        x1 = int((cx - bw / 2) * w)
+        y1 = int((cy - bh / 2) * h)
+        x2 = int((cx + bw / 2) * w)
+        y2 = int((cy + bh / 2) * h)
 
-        rect = patches.Rectangle(
-            (px, py), pw, ph,
-            linewidth=2, edgecolor="lime", facecolor="none"
-        )
-        ax.add_patch(rect)
-        ax.text(
-            px, py - 4,
-            VOC_CLASSES[label.item()],
-            color="lime", fontsize=9,
-            bbox=dict(facecolor="black", alpha=0.4, pad=1),
-        )
+        cv2.rectangle(img_bgr, (x1, y1), (x2, y2), color=(0, 255, 0), thickness=2)
 
-    ax.axis("off")
-    plt.tight_layout()
+        cls_name = VOC_CLASSES[label.item()]
+        (tw, th), baseline = cv2.getTextSize(cls_name, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.rectangle(img_bgr, (x1, y1 - th - baseline - 4), (x1 + tw, y1), (0, 0, 0), -1)
+        cv2.putText(img_bgr, cls_name, (x1, y1 - baseline - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=150)
+        cv2.imwrite(save_path, img_bgr)
         print(f"Saved: {save_path}")
     else:
-        plt.show()
-
-    plt.close()
+        cv2.imshow(f"VOC sample #{idx}  |  {len(boxes)} objects", img_bgr)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 
 # ────────────────────────────────────────────────
@@ -287,5 +317,4 @@ if __name__ == "__main__":
     print("  Shape checks passed.")
 
     # Visualization
-    save_path = args.save or f"outputs/figures/voc_sample_{args.vis_idx}.png"
-    visualize_sample(sample, idx=args.vis_idx, save_path=save_path)
+    visualize_sample(sample, idx=args.vis_idx, save_path=args.save)

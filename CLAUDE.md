@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 model, loss, trajectory 등 내부 설계를 다룰 때만 읽기:
 - `docs/problem_statement.md`
+- `model/CLAUDE.md`
 
 이슈가 해결되지 않을 때만 읽기:
 - `docs/issues.md`

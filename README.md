@@ -111,3 +111,5 @@ python dataset/voc.py --root data/voc --year 2007 --split val --download --vis_i
 # python dataset/transforms.py
 # python model/flow_matching.py
 ```
+### claude 
+claude --dangerously-skip-permissions

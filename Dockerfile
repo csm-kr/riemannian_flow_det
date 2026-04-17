@@ -45,6 +45,26 @@ COPY . .
 RUN mkdir -p data/voc data/coco outputs/checkpoints outputs/logs outputs/figures
 
 # ────────────────────────────────────────────────
+# Non-root user (claude --dangerously-skip-permissions 사용을 위해)
+# ────────────────────────────────────────────────
+RUN useradd -m -s /bin/bash devuser && \
+    chown -R devuser:devuser /workspace
+
+# 프로젝트의 .claude/ → devuser 글로벌 설정으로 심링크
+RUN ln -s /workspace/riemannian_flow_det/.claude /home/devuser/.claude && \
+    chown -h devuser:devuser /home/devuser/.claude
+
+USER devuser
+
+# ────────────────────────────────────────────────
+# Claude Code CLI
+# ────────────────────────────────────────────────
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/devuser/.bashrc
+
+ENV PATH="/home/devuser/.local/bin:$PATH"
+
+# ────────────────────────────────────────────────
 # TensorBoard port
 # ────────────────────────────────────────────────
 EXPOSE 6006
