@@ -152,6 +152,152 @@ class LinearTrajectory:
         return b_t + dt * v_t
 
 
+class RiemannianTrajectoryArbPrior:
+    """
+    Riemannian (state-space) interp with an **arbitrary cxcywh Gaussian prior**.
+
+    Purpose (e2 2×2): isolate the effect of the prior itself from the effect of
+    the interpolation space. Compared to `RiemannianTrajectory`, only b₀ is drawn
+    differently — from `clip(N(μ, σ²), ε, 1)` in cxcywh, then pushed to state
+    via `cxcywh_to_state`. Interpolation and target field are still Riemannian
+    (constant in x_t).
+
+        b₀_cx ~ clip(N(μ, σ²), ε, 1)              (cxcywh, bounded)
+        b₀    = cxcywh_to_state(b₀_cx)            (state)
+        b_t   = (1-t)·b₀ + t·b₁                   (linear in state)
+        u_t*  = b₁ − b₀                           (constant in x_t)
+
+    If training fails here (like `linear_arb_prior` did) → 원인은 prior 의 entropy /
+    coupling, interp 공간 무관. 성공 → 원인은 `time-dependent u_t × arb prior`.
+    """
+
+    def __init__(
+        self,
+        mu:    float = 0.5,
+        sigma: float = 1.0 / 6.0,
+        eps:   float = 0.02,
+    ):
+        self.mu, self.sigma, self.eps = mu, sigma, eps
+
+    def _sample_b0_cx(self, shape, device, dtype) -> torch.Tensor:
+        b0 = self.mu + self.sigma * torch.randn(shape, device=device, dtype=dtype)
+        return b0.clamp(min=self.eps, max=1.0)
+
+    def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
+        """Inference b₀ — cxcywh arb prior → state (for model input)."""
+        b0_cx = self._sample_b0_cx((B, Q, 4), device, dtype)
+        return cxcywh_to_state(b0_cx)
+
+    def sample(
+        self,
+        b1: torch.Tensor,    # state-space target [B, N, 4]
+        t:  torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Inputs:
+            b1: [B, N, 4] target in state space
+            t:  [B]       timestep in [0, 1]
+        Outputs:
+            b_t: [B, N, 4] interpolated state
+            u_t: [B, N, 4] constant target field (b₁ − b₀)
+            b0:  [B, N, 4] prior sample in state space
+        """
+        b0_cx = self._sample_b0_cx(b1.shape, b1.device, b1.dtype)
+        b0    = cxcywh_to_state(b0_cx)
+        t_    = t[:, None, None]
+        b_t   = (1.0 - t_) * b0 + t_ * b1
+        u_t   = b1 - b0
+        return b_t, u_t, b0
+
+    def ode_step(
+        self,
+        b_t: torch.Tensor,
+        v_t: torch.Tensor,
+        dt:  float,
+    ) -> torch.Tensor:
+        return b_t + dt * v_t
+
+
+class LinearTrajectoryArbPrior:
+    """
+    Euclidean baseline with an **arbitrary cxcywh Gaussian prior** (not state Gaussian).
+
+    Purpose (e2): test what happens when the Euclidean prior is sampled directly in
+    cxcywh space from a clipped Gaussian — i.e. a prior that doesn't respect the
+    geometry of ℝ² × ℝ₊². Small w/h at b₀ are frequent, so the target field
+    u_t ∝ 1/w_t blows up more often than under the log-normal prior induced by
+    state-space Gaussian.
+
+        b₀_cx[c] ~ clip( N(μ, σ²), ε, 1 )       c ∈ {cx, cy, w, h}
+        b_t_cx   = (1-t)·b₀_cx + t·b₁_cx         (linear in cxcywh)
+        b_t      = cxcywh_to_state(b_t_cx)       (state for model input)
+        u_t*     = [Δcx, Δcy, Δw/w_t, Δh/h_t]    (time-dependent, potentially singular)
+
+    Differences vs `LinearTrajectory`:
+      - b₀ is drawn in cxcywh directly (not induced by state N(0,I) via exp)
+      - Clip creates point mass at eps and 1 (boundary concentration)
+      - Small-w events are ~100× more frequent → 1/w_t blow-up frequent
+    """
+
+    def __init__(
+        self,
+        mu:    float = 0.5,
+        sigma: float = 1.0 / 6.0,
+        eps:   float = 0.02,
+    ):
+        self.mu, self.sigma, self.eps = mu, sigma, eps
+
+    def _sample_b0_cx(self, shape, device, dtype) -> torch.Tensor:
+        b0 = self.mu + self.sigma * torch.randn(shape, device=device, dtype=dtype)
+        return b0.clamp(min=self.eps, max=1.0)
+
+    def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
+        """
+        Inference-time b₀ — cxcywh Gaussian prior, converted to state for model input.
+        Output: [B, Q, 4] in state space [cx, cy, log_w, log_h].
+        """
+        b0_cx = self._sample_b0_cx((B, Q, 4), device, dtype)
+        return cxcywh_to_state(b0_cx)
+
+    def sample(
+        self,
+        b1_cx: torch.Tensor,
+        t:     torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Purpose: Sample interpolated state + target vector field under arbitrary
+                 Euclidean cxcywh prior.
+        Inputs:
+            b1_cx: [B, N, 4] target in normalized cxcywh
+            t:     [B]       timestep in [0, 1]
+        Outputs:
+            b_t:   [B, N, 4] interpolated state (state space, model input)
+            u_t:   [B, N, 4] target vector field in state space (time-dependent)
+        """
+        b0_cx = self._sample_b0_cx(b1_cx.shape, b1_cx.device, b1_cx.dtype)
+        t_     = t[:, None, None]
+        b_t_cx = (1.0 - t_) * b0_cx + t_ * b1_cx
+        b_t    = cxcywh_to_state(b_t_cx)
+
+        dcx = b1_cx[..., 0] - b0_cx[..., 0]
+        dcy = b1_cx[..., 1] - b0_cx[..., 1]
+        w_t = b_t_cx[..., 2].clamp(min=1e-6)
+        h_t = b_t_cx[..., 3].clamp(min=1e-6)
+        dw  = b1_cx[..., 2] - b0_cx[..., 2]
+        dh  = b1_cx[..., 3] - b0_cx[..., 3]
+
+        u_t = torch.stack([dcx, dcy, dw / w_t, dh / h_t], dim=-1)
+        return b_t, u_t
+
+    def ode_step(
+        self,
+        b_t: torch.Tensor,
+        v_t: torch.Tensor,
+        dt:  float,
+    ) -> torch.Tensor:
+        return b_t + dt * v_t
+
+
 if __name__ == "__main__":
     print("=== trajectory.py sanity check ===")
     from dataset.box_ops import cxcywh_to_state, state_to_cxcywh
@@ -191,5 +337,34 @@ if __name__ == "__main__":
     assert b_t_lin.shape == (B, N, 4)
     assert u_t_lin.shape == (B, N, 4)
     print(f"LinearTrajectory sample: b_t {b_t_lin.shape}, u_t {u_t_lin.shape}  ✓")
+
+    # ── LinearTrajectoryArbPrior ────────────────────────────────────────────
+    arb_traj = LinearTrajectoryArbPrior(mu=0.5, sigma=1.0 / 6.0, eps=0.02)
+    b_t_arb, u_t_arb = arb_traj.sample(boxes_gt, t)
+    assert b_t_arb.shape == (B, N, 4)
+    assert u_t_arb.shape == (B, N, 4)
+    # prior samples must be in [eps, 1]
+    b0_cx = arb_traj._sample_b0_cx((1000, 4), device=boxes_gt.device, dtype=boxes_gt.dtype)
+    assert b0_cx.min() >= 0.02 - 1e-6 and b0_cx.max() <= 1.0 + 1e-6
+    print(f"LinearTrajectoryArbPrior sample: b_t {b_t_arb.shape}, u_t {u_t_arb.shape}  ✓")
+    print(f"  b0_cx in [{b0_cx.min():.3f}, {b0_cx.max():.3f}]  ✓")
+
+    # init_noise for inference — returns state space
+    init = arb_traj.init_noise(2, 10, device=boxes_gt.device)
+    assert init.shape == (2, 10, 4)
+    print(f"  init_noise: {init.shape}  ✓")
+
+    # ── RiemannianTrajectoryArbPrior ────────────────────────────────────────
+    rie_arb = RiemannianTrajectoryArbPrior(mu=0.5, sigma=1.0 / 6.0, eps=0.02)
+    b_t_ra, u_t_ra, b0_ra = rie_arb.sample(b1, t)
+    assert b_t_ra.shape == (B, N, 4)
+    assert u_t_ra.shape == (B, N, 4)
+    # constant field property: u_t = b1 - b0
+    assert torch.allclose(u_t_ra, b1 - b0_ra), "riemannian_arb_prior: u_t must = b1 - b0"
+    print(f"RiemannianTrajectoryArbPrior sample: b_t {b_t_ra.shape}, u_t {u_t_ra.shape}  ✓")
+    print(f"  constant u_t check  ✓")
+    init_ra = rie_arb.init_noise(2, 10, device=boxes_gt.device)
+    assert init_ra.shape == (2, 10, 4)
+    print(f"  init_noise: {init_ra.shape}  ✓")
 
     print("All checks passed.")

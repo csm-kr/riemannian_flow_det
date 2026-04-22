@@ -6,7 +6,12 @@ from model.backbone import FPNBackbone, DINOv2Backbone
 from model.dit import FlowDiT
 from model.head import BoxHead
 from model.loss import FlowMatchingLoss
-from model.trajectory import RiemannianTrajectory, LinearTrajectory
+from model.trajectory import (
+    RiemannianTrajectory,
+    RiemannianTrajectoryArbPrior,
+    LinearTrajectory,
+    LinearTrajectoryArbPrior,
+)
 
 
 class RiemannianFlowDet(nn.Module):
@@ -58,12 +63,17 @@ class RiemannianFlowDet(nn.Module):
         self.loss_fn   = FlowMatchingLoss()
         self.num_queries = num_queries
 
-        assert trajectory_type in ("riemannian", "linear"), \
-            f"Unknown trajectory_type: {trajectory_type}"
-        self.trajectory = (
-            RiemannianTrajectory() if trajectory_type == "riemannian"
-            else LinearTrajectory()
-        )
+        assert trajectory_type in (
+            "riemannian", "linear", "linear_arb_prior", "riemannian_arb_prior"
+        ), f"Unknown trajectory_type: {trajectory_type}"
+        if trajectory_type == "riemannian":
+            self.trajectory = RiemannianTrajectory()
+        elif trajectory_type == "linear":
+            self.trajectory = LinearTrajectory()
+        elif trajectory_type == "linear_arb_prior":
+            self.trajectory = LinearTrajectoryArbPrior()
+        else:
+            self.trajectory = RiemannianTrajectoryArbPrior()
         self.trajectory_type = trajectory_type
 
     # ── Training ──────────────────────────────────────────────────────────────
@@ -95,7 +105,7 @@ class RiemannianFlowDet(nn.Module):
         # Sample one t per image
         t = torch.rand(B, device=images.device)
 
-        if self.trajectory_type == "riemannian":
+        if self.trajectory_type in ("riemannian", "riemannian_arb_prior"):
             b1      = cxcywh_to_state(padded)           # [B, max_N, 4]
             b_t, u_t, _ = self.trajectory.sample(b1, t)
         else:

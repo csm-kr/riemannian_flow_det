@@ -1,14 +1,21 @@
 """
-Trajectory GIF: Riemannian (state space flow, ours) vs Linear (Euclidean cxcywh).
+Trajectory GIF: N-variant side-by-side (default: Riemannian vs Linear).
 
-1장 MNIST Box 샘플에서 두 trajectory를 각각 overfit → ODE 20 step 궤적을 캡처
-→ 좌 Riemannian / 우 Linear 나란히 frame 만들어 GIF 저장.
+1장 MNIST Box 샘플에서 각 trajectory variant 를 overfit → ODE num_steps Euler
+궤적을 캡처 → 같은 GT image + 각자 b₀ 의 ODE 궤적을 panel 나열 → GIF.
 
-Canvas는 MNIST 256을 중앙에 두고 bigger (pad)로 확장해 init box(이미지 밖)도 보이게.
+Canvas는 MNIST 256 을 중앙에 두고 bigger (pad) 로 확장해 init box(이미지 밖)도 보이게.
 
 실행:
-    python script/trajectory_gif.py                      # 기본 (steps 1500)
+    # 기본 (e1: riemannian vs linear)
     python script/trajectory_gif.py --train_steps 2000 --ode_steps 30
+
+    # e2: 3-variant
+    python script/trajectory_gif.py \
+        --variants 'riemannian:Riemannian (ours)' \
+                   'linear:Euclidean (log-normal)' \
+                   'linear_arb_prior:Euclidean (arbitrary prior)' \
+        --ode_steps 30
 """
 
 import argparse
@@ -193,6 +200,18 @@ def side_by_side(left: np.ndarray, right: np.ndarray, gap: int = 4) -> np.ndarra
     return np.concatenate([left, sep, right], axis=1)
 
 
+def stack_panels(panels: list[np.ndarray], gap: int = 4) -> np.ndarray:
+    """N panel 을 가로로 gap 픽셀 구분선과 함께 이어붙임."""
+    if not panels:
+        raise ValueError("stack_panels: empty panels list")
+    H, _, _ = panels[0].shape
+    sep = np.full((H, gap, 3), 60, dtype=np.uint8)
+    out = [panels[0]]
+    for p in panels[1:]:
+        out.extend([sep, p])
+    return np.concatenate(out, axis=1)
+
+
 # ────────────────────────────────────────────────
 # GIF 저장
 # ────────────────────────────────────────────────
@@ -220,6 +239,21 @@ def save_gif(frames: list[np.ndarray], path: str,
 # Entry point
 # ────────────────────────────────────────────────
 
+def parse_variants(items: list[str]) -> list[tuple[str, str]]:
+    """
+    '--variants riemannian:Riemannian (ours)' 형식 → [(tag, label), ...].
+    tag 만 주면 label = tag 로 설정.
+    """
+    out = []
+    for it in items:
+        if ":" in it:
+            tag, label = it.split(":", 1)
+        else:
+            tag, label = it, it
+        out.append((tag.strip(), label.strip()))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config",      default="configs/mnist_box.yaml")
@@ -235,11 +269,20 @@ def main():
     parser.add_argument("--sample_idx",  type=int,   default=0)
     parser.add_argument("--seed",        type=int,   default=0)
     parser.add_argument("--out_dir",     default="outputs/trajectory_gif")
+    parser.add_argument(
+        "--variants", nargs="+",
+        default=["riemannian:Riemannian (ours)", "linear:Euclidean (baseline)"],
+        help="포맷: <trajectory_tag>:<display label>. 기본은 e1 의 2-way 비교.",
+    )
     args = parser.parse_args()
+
+    variants = parse_variants(args.variants)
+    assert len(variants) >= 1, "--variants 에 최소 1개 필요"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[device] {device}  [out] {out_dir}")
+    print(f"[variants] {variants}")
 
     # 1. 데이터 로드 (1장)
     cfg = load_config(args.config)
@@ -253,36 +296,31 @@ def main():
     gt_cxcywh  = batch["boxes"][0]               # [10, 4] normalized cxcywh
     mnist_bgr  = denormalize_image(batch["images"][0])
 
-    # 2. 두 trajectory로 각각 overfit
-    print("\n=== Train Riemannian (ours) ===")
-    m_rie = train_model(cfg, "riemannian", batch, device,
+    # 2. 각 variant 학습 + ODE 궤적 캡처
+    trajs: list[list[torch.Tensor]] = []
+    for tag, label in variants:
+        print(f"\n=== Train {tag} ({label}) ===")
+        m = train_model(cfg, tag, batch, device,
                         args.train_steps, args.lr, args.seed,
                         lr_schedule=args.lr_schedule)
+        print(f"=== ODE trace ({tag}) ===")
+        trajs.append(ode_trace(m, images_gpu, args.ode_steps, seed=args.seed))
 
-    print("\n=== Train Linear (Euclidean baseline) ===")
-    m_lin = train_model(cfg, "linear", batch, device,
-                        args.train_steps, args.lr, args.seed,
-                        lr_schedule=args.lr_schedule)
+    n_frames = len(trajs[0])
+    print(f"\n  captured {n_frames} frames per variant (t=0 → t=1)")
 
-    # 3. 같은 b_0 seed로 ODE 궤적 캡처
-    print("\n=== ODE trace ===")
-    traj_rie = ode_trace(m_rie, images_gpu, args.ode_steps, seed=args.seed)
-    traj_lin = ode_trace(m_lin, images_gpu, args.ode_steps, seed=args.seed)
-    print(f"  captured {len(traj_rie)} frames per method (t=0 → t=1)")
-
-    # 4. frame 합성
+    # 3. frame 합성 (N-panel)
     frames = []
-    for i in range(len(traj_rie)):
+    for i in range(n_frames):
         t_val = i / args.ode_steps
-        frm_l = make_frame(mnist_bgr, gt_cxcywh, traj_rie[i][0],
-                           t_val, "Riemannian (ours)",
-                           canvas_size=args.canvas_size)
-        frm_r = make_frame(mnist_bgr, gt_cxcywh, traj_lin[i][0],
-                           t_val, "Euclidean (baseline)",
-                           canvas_size=args.canvas_size)
-        frames.append(side_by_side(frm_l, frm_r))
+        panels = [
+            make_frame(mnist_bgr, gt_cxcywh, trajs[k][i][0],
+                       t_val, label, canvas_size=args.canvas_size)
+            for k, (_, label) in enumerate(variants)
+        ]
+        frames.append(stack_panels(panels))
 
-    # 5. 저장
+    # 4. 저장
     gif_path = out_dir / "trajectory_compare.gif"
     save_gif(frames, str(gif_path), fps=args.fps, hold_last=args.fps * 2)
     print(f"\n[saved] GIF → {gif_path}")

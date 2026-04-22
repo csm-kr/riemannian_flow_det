@@ -30,3 +30,4 @@ experiments/
 |----|------|------|--------|
 | e0 | MB5 1-image overfit ablation (hyperparam sweep) | ✅ 완료 | [e0_mb5_overfit/report.md](e0_mb5_overfit/report.md) |
 | e1 | Riemannian vs Euclidean 공정 비교 (통일 prior) | ✅ 완료 | [e1_unified_prior_fair_compare/report.md](e1_unified_prior_fair_compare/report.md) |
+| e2 | 2×2 ablation: prior × interp space (arb prior 포함) | ✅ 완료 | [e2_arbitrary_euclidean_prior/report.md](e2_arbitrary_euclidean_prior/report.md) |

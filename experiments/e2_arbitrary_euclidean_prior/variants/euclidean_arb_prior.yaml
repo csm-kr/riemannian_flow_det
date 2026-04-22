@@ -1,0 +1,34 @@
+# e2 / Euclidean (arbitrary Euclidean prior) — NEW
+# b₀_cx ~ clip(N(0.5, 1/6), 0.02, 1) — cxcywh 4차원을 직접 Gaussian으로 샘플.
+# 목적: (a) invalid sample(음수) 시도 → clip 의존, (b) u_t ∝ 1/w_t 더 자주 발산.
+__tag__: euclidean_arb_prior
+__max_steps__: 5000
+__lr__: 3.0e-4
+__lr_schedule__: cosine
+__ode_steps__: 50
+
+dataset: mnist_box
+mnist_image_size: 256
+mnist_scale_range: [14, 56]
+mnist_num_samples_train: 1
+mnist_num_samples_val: 1
+mnist_bbox_mode: fixed
+mnist_background: zero
+min_size: 256
+max_size: 256
+
+hidden_dim: 192
+num_layers: 4
+num_heads: 6
+mlp_ratio: 4
+num_queries: 10
+backbone_type: fpn
+backbone_pretrained: true
+trajectory: linear_arb_prior  # ★ clipped cxcywh Gaussian prior
+
+batch_size: 1
+num_workers: 0
+pin_memory: false
+weight_decay: 0.0
+grad_clip_norm: 1.0
+seed: 0

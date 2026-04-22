@@ -23,9 +23,11 @@ import matplotlib.pyplot as plt
 
 # variant 색상 (GIF의 타이틀 컨벤션과 일관)
 _COLORS = {
-    "riemannian": "#ea5547",   # warm red
-    "euclidean":  "#3b82f6",   # cool blue
-    "linear":     "#3b82f6",   # alias
+    "riemannian":           "#ea5547",   # warm red
+    "euclidean":            "#3b82f6",   # cool blue
+    "linear":               "#3b82f6",   # alias
+    "euclidean_arb_prior":  "#16a34a",   # green (e2)
+    "riemannian_arb_prior": "#a855f7",   # purple (e2 2×2 4th cell)
 }
 _DEFAULT_COLOR = "#808080"
 
