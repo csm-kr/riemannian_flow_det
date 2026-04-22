@@ -37,6 +37,14 @@ python script/trajectory_gif.py \
   --train_steps 5000 --lr 3e-4 --lr_schedule cosine --ode_steps 50 --fps 12 \
   --out_dir "$OUT_ROOT/gif"
 
+# canonical 위치(docs/assets/)에 동기화 — README.md 임베드용
+mkdir -p docs/assets
+cp "$OUT_ROOT/gif/trajectory_compare.gif" docs/assets/
+cp "$OUT_ROOT/gif/frame_t_0.00.png" docs/assets/
+cp "$OUT_ROOT/gif/frame_t_0.50.png" docs/assets/
+cp "$OUT_ROOT/gif/frame_t_1.00.png" docs/assets/
+echo "[sync] outputs → docs/assets/ 갱신 완료"
+
 echo ""
 echo "=============================================="
 echo " Results summary"

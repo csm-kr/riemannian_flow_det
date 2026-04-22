@@ -28,10 +28,12 @@
 
 | Trajectory | tail₁₀₀ loss | mean err (px) | max err (px) |
 |---|---|---|---|
-| **Riemannian** (ours) | **0.021** | **4.5** | **11.2** |
-| Euclidean (baseline) | 0.111 | 4.7 | 27.4 |
+| **Riemannian** (ours) | **0.028** | **5.3** | **16.9** |
+| Euclidean (baseline) | 0.056 | 6.1 | 49.1 |
 
-Mean err는 유사하지만 **worst-case(max err) · tail loss에서 2.5~5배 차이** — Riemannian의 우위는 prior 차이가 아닌 **target vector field의 구조**(constant vs time-dependent)에서 온다.
+> 재현: `bash experiments/e1_unified_prior_fair_compare/run.sh`. flow matching의 `t` 샘플링 noise로 run 간 ±30% 변동.
+
+Mean err는 유사하지만 **worst-case(max err) · tail loss에서 2~3배 차이** — Riemannian의 우위는 prior 차이가 아닌 **target vector field의 구조**(constant vs time-dependent)에서 온다.
 
 설계·결과 세부: [`experiments/e1_unified_prior_fair_compare/report.md`](experiments/e1_unified_prior_fair_compare/report.md)
 이론·구현 분석 + 모델 다이어그램: [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) (section 9)

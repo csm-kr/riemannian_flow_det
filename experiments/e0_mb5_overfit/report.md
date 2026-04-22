@@ -352,14 +352,17 @@ def sample(self, b1_cx, t):
 
 | Trajectory | tail₁₀₀ loss | mean_box_err (norm) | max_box_err (norm) | mean err (px) | max err (px) |
 |---|---|---|---|---|---|
-| **Riemannian** (ours) | **0.021** | **0.0175** | **0.0437** | **4.5** | **11.2** |
-| Euclidean (baseline) | 0.111 | 0.0185 | 0.1070 | 4.7 | 27.4 |
+| **Riemannian** (ours) | **0.028** | **0.021** | **0.066** | **5.3** | **16.9** |
+| Euclidean (baseline) | 0.056 | 0.024 | 0.192 | 6.1 | 49.1 |
+
+> 공식 수치는 e1의 `run.sh` 재실행으로 재현 가능. flow matching의 `t` 샘플링 noise로
+> run 간 ±30% 변동 있음. 자세한 건 [`experiments/e1_unified_prior_fair_compare/report.md`](../e1_unified_prior_fair_compare/report.md) 참고.
 
 ### 관찰
 
 - `b₀`가 완전히 동일해진 덕에 **두 방법의 유일한 차이가 interpolation 공간**임이 명확.
-- **Riemannian이 max err 기준 2.5배, tail loss 기준 5배 우위** — 이것이 target 벡터장 구조(constant vs time-dependent)의 순수 이론적 차이.
-- Mean err는 둘 다 낮음 (4.5 / 4.7 px) — 대부분의 박스는 잘 맞춤. 그러나 **worst-case**에서 Euclidean이 크게 벗어남 (27 px) → scale 축의 time-dependent field 학습이 상대적으로 어렵기 때문.
+- **Riemannian이 max err 기준 2.9배, tail loss 기준 2배 우위** — target 벡터장 구조(constant vs time-dependent)의 순수 이론적 차이.
+- Mean err는 둘 다 낮음 (5.3 / 6.1 px) — 대부분의 박스는 잘 맞춤. 그러나 **worst-case**에서 Euclidean이 크게 벗어남 (49 px) → scale 축의 time-dependent field 학습이 상대적으로 어렵기 때문.
 - 이전 비교 (다른 priors: Eu max 196 px) 대비 Euclidean이 훨씬 **공정하게** 성능 발휘. 이전 결과의 주요 원인은 이론이 아닌 prior mismatch였음을 역으로 확인.
 
 ### 9.6 시각 결과 (공정 비교)

@@ -81,24 +81,34 @@ Variant 파일: `variants/riemannian.yaml`, `variants/euclidean.yaml` (trajector
 
 ## 4. 결과
 
+`bash experiments/e1_unified_prior_fair_compare/run.sh` 출력 기준 (재현 가능한 수치):
+
 | Trajectory | tail₁₀₀ loss | mean err (norm) | max err (norm) | mean err (px) | max err (px) | wall time |
 |---|---|---|---|---|---|---|
-| **Riemannian** (ours) | **0.021** | **0.0175** | **0.0437** | **4.5** | **11.2** | 57 s |
-| Euclidean (baseline)  | 0.111 | 0.0185 | 0.1070 | 4.7 | **27.4** | 60 s |
+| **Riemannian** (ours) | **0.028** | **0.021** | **0.066** | **5.3** | **16.9** | ~57 s |
+| Euclidean (baseline)  | 0.056 | 0.024 | 0.192 | 6.1 | **49.1** | ~60 s |
+
+> Note: flow matching은 `t ~ U[0,1]` 샘플링 때문에 step 단위 loss가 본질적으로 noisy.
+> 여러 run 사이 variance가 있어 정확한 숫자는 ±30% 오차 구간 내 (run 재현 권장).
 
 ### 관찰
 
-1. **Mean err는 둘 다 낮음** (4.5 / 4.7 px) — 대부분의 박스는 잘 맞춤. "10장 중 10장" 기준 대강 성공.
-2. **Max err에서 2.5배 차이** (11 vs 27 px) — worst-case 박스에서 Euclidean이 훨씬 뒤처짐.
-3. **Tail loss 5배 차이** (0.021 vs 0.111) — 학습 수렴 자체가 Euclidean은 더 어려움.
-4. 이전(e0, 서로 다른 prior) 비교에서 Euclidean max err가 **196 px**였던 것과 대조적으로, 통일 prior에서는 27 px까지 회복 — 따라서 이전 Eu의 대실패는 **prior mismatch가 주 원인**이었음이 확인됨.
-5. 그럼에도 **Riemannian의 theoretical 우위는 실존** — prior mismatch 제거 후에도 여전히 2.5~5배 차이.
+1. **Mean err는 둘 다 낮음** (5.3 / 6.1 px) — 대부분의 박스는 잘 맞춤. "10개 중 대부분" 기준 성공.
+2. **Max err에서 2.9배 차이** (17 vs 49 px) — worst-case 박스에서 Euclidean이 뚜렷히 뒤처짐.
+3. **Tail loss 2배 차이** (0.028 vs 0.056) — 학습 수렴 자체가 Euclidean은 더 어려움.
+4. **Euclidean은 variance가 더 큼** — 여러 run 비교 시 Rm은 max_err ~11~17 범위 내, Eu는 ~27~49 범위. Time-dependent field 학습의 **불안정성** 시사.
+5. 이전(e0, 서로 다른 prior) 비교에서 Euclidean max err가 **196 px**였던 것과 대조 → 통일 prior에서는 49 px까지 회복. 이전 Eu의 대실패는 **prior mismatch가 주 원인**이었음.
+6. 그럼에도 **Riemannian의 theoretical 우위는 실존** — prior mismatch 제거 후에도 2~3배 차이 유지.
 
 ---
 
 ## 5. 시각 결과
 
-GIF: `outputs/e1_unified_prior_fair_compare/gif/trajectory_compare.gif` (실행 시 생성. 현재 관례상 `docs/assets/trajectory_compare.gif`에 최신 버전을 트래킹.)
+두 경로에 동일한 GIF가 저장됨:
+- **Canonical (git-tracked)**: [`docs/assets/trajectory_compare.gif`](../../docs/assets/trajectory_compare.gif) — README.md 임베드용, 최신 run 결과 고정.
+- **Run 아티팩트**: `outputs/e1_unified_prior_fair_compare/gif/trajectory_compare.gif` — `run.sh` 실행 시 갱신. git 미추적.
+
+51 frame · 12 fps · 768×768 확장 canvas side-by-side (Rm / Eu).
 
 - **t=0.00**: 좌/우 **완전히 동일한 init 박스**. 일부 박스는 이미지 밖 (state Gaussian의 자연스러운 분포).
 - **t=0.5**: 양쪽 다 박스를 MNIST 영역으로 끌어옴. Riemannian이 약간 빠름.
