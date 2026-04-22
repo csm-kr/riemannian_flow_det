@@ -7,10 +7,29 @@
 기존 검출 방식은 박스를 단일 스텝 회귀로 예측한다. 이 프로젝트는 박스 정제를 기하학적 box state space 위에서의 **연속 흐름(continuous flow)** 으로 모델링하며, flow matching으로 벡터 필드를 정의하고 학습한다.
 
 핵심 기여:
-- 기하학적 보간을 갖춘 box state space 정의
+- 기하학적 보간을 갖춘 box state space 정의 (`ℝ² × ℝ₊²`)
 - box 궤적 학습을 위한 flow matching objective
 - 벡터 필드 예측을 위한 DiT-style transformer
 - 반복적 추론 정제(iterative inference refinement)
+
+---
+
+## Riemannian vs Euclidean — Toy 시각 비교
+
+1장의 합성 MNIST Box 이미지(0~9 전체 10 digit, scale 14~56px, 256×256 canvas)에 두 trajectory를 **동일 조건**(5000 step, cosine LR, 50-step Euler ODE)으로 overfit한 결과 궤적:
+
+![Riemannian vs Euclidean trajectory](docs/assets/trajectory_compare.gif)
+
+> 좌: **Riemannian** (log-scale state space geodesic, ours) · 우: **Euclidean** (cxcywh 선형 보간, baseline)
+> 같은 init noise `b₀`에서 시작 → t=1까지 10개 query가 GT digit에 수렴.
+> Riemannian은 모든 box가 GT에 타이트하게 덮이지만, Euclidean은 size/position이 어긋남.
+
+| Trajectory | tail₁₀₀ loss | mean err (px) | max err (px) |
+|---|---|---|---|
+| **Riemannian** (ours) | **0.026** | **4.0** | **10.0** |
+| Euclidean (baseline) | 0.41 | 41.5 | 196.8 |
+
+본 실험의 세부 설계·모델 다이어그램·코드 트레이스는 [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) 참고.
 
 ## 데이터셋
 

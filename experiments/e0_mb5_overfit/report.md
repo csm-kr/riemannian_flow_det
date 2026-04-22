@@ -125,7 +125,7 @@ Config 위치: `experiments/e0_mb5_overfit/variants/{A,B,C,D}.yaml`
 1. **학습 길이 × LR 감쇠(B)가 핵심 기여** — tail loss 0.107 → 0.031 (3.5× 감소), max_err 34 → 22 px.
 2. **ODE step 수 단독(C)은 효과 미미** — A 대비 거의 동일. 현재 병목은 model convergence이지 integration 정확도가 아님.
 3. **모델 capacity 확장(D)도 한계 효용** — B와 거의 동률(tail 0.032 vs 0.031). 1장 overfit에는 28M params로 충분.
-4. **Linear baseline은 여전히 실패** — train 분포(`b_0 ~ U(0.05, 0.95)` in cxcywh)와 infer 분포(`randn` in state space) 불일치로 궤적이 수렴하지 않음 ([ISSUES.md의 별도 항목 예정](../../docs/ISSUES.md)).
+4. **Euclidean baseline은 여전히 실패** — 초기엔 train/infer prior 불일치가 원인으로 보였으나, `init_noise` 훅으로 공정 비교한 section 9.5 결과에서도 tail loss 16×·max err 196px로 대폭 뒤처짐. 원인은 **time-dependent 벡터장** 학습의 본질적 어려움 (섹션 9.2·9.5).
 
 ---
 
@@ -137,11 +137,11 @@ Config 위치: `experiments/e0_mb5_overfit/variants/{A,B,C,D}.yaml`
 - 노랑(GT) + 녹색(pred) 이 10개 digit 모두에서 눈에 띄게 겹침
 - 옅은 파랑 = init b₀ (대부분 캔버스 밖, clip 후 가장자리에 표시)
 
-### 7.2 Trajectory GIF — Riemannian vs Linear
+### 7.2 Trajectory GIF — Riemannian vs Euclidean
 `outputs/e0_mb5_overfit/B_longer/trajectory_gif/trajectory_compare.gif`
 
 - 두 모델 모두 winner 설정(5000 step, cosine, ODE 50)로 재학습 후 궤적 캡처
-- t=0 동일한 Gaussian noise → t=1 **Riemannian만 GT에 정확히 수렴**, Linear는 발산/편향
+- t=0 동일한 Gaussian noise → t=1 **Riemannian만 GT에 정확히 수렴**, Euclidean는 발산/편향
 - 768×768 확장 canvas — init 박스가 이미지 밖까지 보임
 
 ---
@@ -180,8 +180,167 @@ python script/overfit_mnist_box.py \
 
 ---
 
-## 9. 다음 단계 (out of scope)
+## 9. Riemannian vs Euclidean — 이론, 구현, 공정 비교
 
-- **E1 trajectory ablation**: 본 실험의 Linear baseline 실패가 **train/infer prior 불일치**에 기인함을 확인 → `LinearTrajectory`에 init-noise 훅 추가 후 공정 비교 필요. 별도 이슈로 기록 예정.
+> **용어**: 본 섹션부터는 "Linear trajectory"를 **"Euclidean trajectory"** 로 통일한다.
+> ("Linear interpolation"은 양쪽 다 쓰는 수학 연산이라 혼동을 유발.
+> 차이는 **어느 공간 위에서 linear interpolation을 수행하는가** 이므로 공간 이름으로 부른다.)
+
+### 9.1 왜 두 공간인가 — 박스의 기하학
+
+박스 `[cx, cy, w, h]`에서
+- `cx, cy` — 픽셀 **위치**. 자연스럽게 유클리드 (덧셈·차이가 그대로 의미 있음).
+- `w, h`   — **스케일**. 항상 양수 제약. 덧셈으로 평균 내면 기하 평균이 아닌 산술 평균이 됨.
+
+즉 박스의 상태 공간은 `ℝ² × ℝ₊²` — 2D 유클리드 × 2D 양의 실수 반(half) 공간.
+scale 축을 **Euclidean처럼 취급**하면 "w=0.1과 w=10의 중간"이 산술 평균 5.05가 되어 기하학적으로 불균형 (0.1과 10의 기하 평균 = 1이 더 자연스러움).
+
+**해결**: `log_w = log(w)` 치환 → `ℝ_{+}` → `ℝ`. 이제 state는 `[cx, cy, log_w, log_h] ∈ ℝ⁴`.
+이 공간 위에서 선형 보간은 **원래 공간 `ℝ² × ℝ₊²`의 geodesic**에 해당.
+
+### 9.2 두 trajectory의 수식 비교
+
+| | **Riemannian** (ours) | **Euclidean** (baseline) |
+|---|---|---|
+| 보간 공간 | state `[cx, cy, log_w, log_h]` | cxcywh `[cx, cy, w, h]` |
+| b₀ prior | `N(0, I)` in state | `U([0.05, 0.95])` in cxcywh |
+| `b_t` 생성 | `(1−t)b₀ + tb₁` in state | `(1−t)b₀ + tb₁` in cxcywh, 그 후 state로 변환 |
+| 벡터장 `u_t*` | **`b₁ − b₀` (상수, t와 무관)** | `[Δcx, Δcy, Δw/w_t, Δh/h_t]` — **time-dependent** |
+| 모델 학습 | 상수 필드를 regress → 쉬움 | 분모 `w_t, h_t`가 시간에 따라 변함 → 어려움 |
+
+핵심 통찰: Riemannian 쪽은 **학습 목표가 constant**라 모델이 단일 벡터만 예측하면 되지만, Euclidean 쪽은 **`b_t`에 따라 달라지는 field**를 학습해야 함. 같은 용량으로는 Riemannian이 본질적으로 유리하다.
+
+### 9.3 구현 위치 — 어디서 공간이 바뀌는가
+
+코드에서 **Euclidean ↔ Riemannian 경계는 단 두 함수**로 명확히 분리:
+
+| 함수 | 입력 | 출력 | 역할 |
+|---|---|---|---|
+| `cxcywh_to_state(b)` | `[cx, cy, w, h]` | `[cx, cy, log_w, log_h]` | **유클리드 → 리만** 진입. `log()` 적용. |
+| `state_to_cxcywh(s)` | `[cx, cy, log_w, log_h]` | `[cx, cy, w, h]` | **리만 → 유클리드** 복귀. `exp()` 적용. |
+
+(`dataset/box_ops.py:66-90`)
+
+이 두 함수 **외부**에서 `w, h`가 직접 바뀌는 연산은 없다. 즉:
+- `log_w`, `log_h` 는 **학습·보간·추론 전 과정에서** 덧셈/뺄셈/선형결합만 받는다.
+- 박스가 양수 제약을 **자동으로** 만족 (`exp` 출력이 양수).
+
+### 9.4 모델 다이어그램 — 공간 전이 지점
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│   EUCLIDEAN DOMAIN (normalized cxcywh ∈ (0,1) · ImageNet-normalized image)│
+│                                                                            │
+│    ┌──────────────┐       ┌──────────────────────┐                        │
+│    │ image [B,3,H,W]│       │ boxes_gt [B,10,4] cxcywh │                  │
+│    └──────┬───────┘       └────────┬─────────────┘                        │
+│           │                         │                                      │
+│           │                         │  ★ cxcywh_to_state()   log(w),log(h)│
+│           │                         ▼          ═══════════════════════════▶
+│           │              ╔════════════════════════════════════════════════╗
+│           │              ║   RIEMANNIAN DOMAIN (state ∈ ℝ⁴)                ║
+│           │              ║   [cx, cy, log_w, log_h]                       ║
+│           │              ║                                                ║
+│           │              ║   b₁ [B,10,4]                                  ║
+│           │              ║                                                ║
+│           │              ║   b₀ ~ trajectory.init_noise()                 ║
+│           │              ║     Riemannian: randn in state                 ║
+│           │              ║     Euclidean : rand(cxcywh) → cxcywh_to_state ║
+│           │              ║                                                ║
+│           │              ║   t ~ U[0,1]                                   ║
+│           │              ║   b_t = trajectory.sample(b₁, t)               ║
+│           │              ║     Riemannian: (1-t)b₀ + t·b₁                 ║
+│           │              ║     Euclidean : 동일하나 w,h 축 뜻이 다름       ║
+│           │              ║                                                ║
+│           │              ║   ┌─────────────────┐                          ║
+│           │              ║   │ BoxEmbedding    │ [B,10,dim]  ← state      ║
+│           │              ║   │ + query_embed   │ (학습 가능한 per-query)   ║
+│           │              ║   └────────┬────────┘                          ║
+│           ▼                           │                                    ║
+│    ┌──────────────┐                   │                                    ║
+│    │ FPN/DINOv2   │                   │                                    ║
+│    │  Backbone    │  img_tokens       │                                    ║
+│    │              │─────────────────▶ ▼                                    ║
+│    └──────────────┘              ┌────────────┐                            ║
+│                                  │ FlowDiT    │  (self-attn + cross-attn +│
+│                                  │  × depth   │   AdaLN(t) + MLP, RoPE)   ║
+│                                  └─────┬──────┘                            ║
+│                                        │ box_tokens [B,10,dim]             ║
+│                                  ┌─────▼──────┐                            ║
+│                                  │ BoxHead    │                            ║
+│                                  └─────┬──────┘                            ║
+│                                        │ v̂_t [B,10,4]  ← **state space**  ║
+│                                        │                                   ║
+│                      ┌─────────────────┴───────┐                           ║
+│                      │ Training:               │ Inference:                ║
+│                      │   u_t* = b₁-b₀ (Rm)    │   b ← b + Δt · v̂_t        ║
+│                      │   또는 time-dep (Eu)    │   (Euler ODE × num_steps)║
+│                      │   loss = ‖v̂-u‖²        │                           ║
+│                      └─────────────────────────┘                           ║
+│                                                                            ║
+│                                        │  ★ state_to_cxcywh()              ║
+│                                        ▼          ═════════════════════════
+│    ┌──────────────┐                                                        │
+│    │ boxes_pred   │   [B,10,4] cxcywh ∈ (0,1)                              │
+│    └──────────────┘                                                        │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**공간 전이 경계 (★로 표시)**
+- `cxcywh_to_state()` : `log()` 적용 순간부터 모든 연산이 **Riemannian state space**에서 진행
+- `state_to_cxcywh()` : `exp()` 적용 순간 다시 **Euclidean cxcywh**로 복귀 (최종 출력용)
+
+**w, h가 바뀌는 지점 (요약)**
+| 위치 | 연산 | 의미 |
+|------|------|------|
+| `cxcywh_to_state` | `log_w = log(w)` | w를 log-scale로 치환 (한 번만) |
+| `RiemannianTrajectory.sample` | `log_w_t = (1-t)log_w₀ + t·log_w₁` | state에서 선형 보간 = **원 공간의 geodesic** |
+| `EuclideanTrajectory.sample` | `w_t = (1-t)w₀ + t·w₁` → `log(w_t)` | cxcywh에서 선형 보간 후 log 취함 (geodesic 아님) |
+| `trajectory.ode_step` | `log_w_{t+dt} = log_w_t + dt · v̂_w` | 추론 시 log 축에서 이동 |
+| `state_to_cxcywh` | `w = exp(log_w)` | state에서 cxcywh로 복귀 (한 번만) |
+
+### 9.5 공정 비교 실험 — `init_noise` 훅 추가 후
+
+초기 구현에서는 `RiemannianFlowDet.forward_inference`가 항상 `torch.randn(...)`로 `b`를 초기화했다.
+→ Riemannian은 학습 prior(`N(0,I)` state)와 일치했으나, **Euclidean은 학습 prior(`U([0.05,0.95])` cxcywh)와 불일치**.
+
+수정: `trajectory.init_noise(B, Q, device)` 훅을 양쪽에 추가, `forward_inference`에서 이 훅을 호출하게 변경.
+(`model/trajectory.py`, `model/flow_matching.py`)
+
+```python
+# Riemannian.init_noise
+return torch.randn(B, Q, 4)                           # state space
+
+# Euclidean.init_noise
+b0_cx = torch.rand(B, Q, 4) * 0.9 + 0.05              # cxcywh ∈ (0.05, 0.95)
+return cxcywh_to_state(b0_cx)                         # → state space
+```
+
+**공정 비교 결과** (양쪽 동일 설정: 5000 step, cosine LR 3e-4, ODE 50 step, FPN/192-4, 1-image overfit)
+
+| Trajectory | tail₁₀₀ loss | mean_box_err (norm) | max_box_err (norm) | mean err (px) | max err (px) |
+|---|---|---|---|---|---|
+| **Riemannian** (ours) | **0.0255** | **0.0155** | **0.0391** | **4.0** | **10.0** |
+| Euclidean (baseline) | 0.4122 | 0.1622 | 0.7688 | 41.5 | **196.8** |
+
+- Riemannian은 max err 10px (가장 작은 digit=14px 보다 작음) — GT에 거의 perfect match.
+- Euclidean은 tail loss가 **16× 높고**, max err 196px (이미지 76%) — train/infer prior 일치시켜도 **time-dependent 벡터장을 학습하는 어려움 때문에 근본적으로 뒤처짐**.
+
+**결론**: 두 trajectory의 성능 격차는 (a) init prior 일치 문제에서 오는 것이 아니라 (b) **target 벡터장이 constant냐 time-dependent냐**라는 이론적 차이에서 온다. Riemannian이 flow matching의 자연스러운 선택.
+
+### 9.6 시각 결과 (공정 비교)
+
+`docs/assets/trajectory_compare.gif` — 좌 Riemannian / 우 Euclidean, t=0→1 궤적 51 프레임.
+
+- t=0: 양쪽 모두 자기 prior에서 시작 (Riemannian은 넓게, Euclidean은 이미지 안에 뭉침)
+- t=0.5: Riemannian은 **state space에서 상수 방향**으로 끌려 이미 대략적 수렴, Euclidean은 아직 분산
+- t=1: Riemannian은 10개 digit 모두 정확히 덮음, Euclidean은 위치·크기 미스매치 다수
+
+---
+
+## 10. 다음 단계 (out of scope)
+
+- **E1 trajectory ablation**: 본 섹션 9.5의 공정 비교 수치를 기준으로 VOC/COCO로 스케일 확장 — Phase 4 E1의 근거.
 - **다중 샘플 overfit** (`num_samples=4, 16`) — 일반화 초입 확인.
 - **Phase 3 S1 train.py 구축** 시 본 실험의 training 루프 패턴을 재사용.

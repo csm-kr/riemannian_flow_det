@@ -131,8 +131,8 @@ class RiemannianFlowDet(nn.Module):
         Q  = num_queries if num_queries is not None else self.num_queries
         dt = 1.0 / num_steps
 
-        # Start from noise in state space
-        b = torch.randn(B, Q, 4, device=images.device)
+        # Start from the trajectory-specific prior (matches training distribution).
+        b = self.trajectory.init_noise(B, Q, images.device, dtype=images.dtype)
 
         for i in range(num_steps):
             t_val = i / num_steps

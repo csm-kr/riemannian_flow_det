@@ -96,7 +96,8 @@ def ode_trace(
     Q      = model.num_queries
 
     torch.manual_seed(seed)
-    b  = torch.randn(1, Q, 4, device=device)  # state space
+    # trajectory-specific prior (matches training): state space b_0
+    b  = model.trajectory.init_noise(1, Q, device, dtype=images.dtype)
     dt = 1.0 / num_steps
 
     states = [state_to_cxcywh(b).cpu()]  # t=0
@@ -277,7 +278,7 @@ def main():
                            t_val, "Riemannian (ours)",
                            canvas_size=args.canvas_size)
         frm_r = make_frame(mnist_bgr, gt_cxcywh, traj_lin[i][0],
-                           t_val, "Linear (Euclidean)",
+                           t_val, "Euclidean (baseline)",
                            canvas_size=args.canvas_size)
         frames.append(side_by_side(frm_l, frm_r))
 

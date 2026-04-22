@@ -27,6 +27,14 @@ class RiemannianTrajectory:
     u_t* = b₁ − b₀                  (constant vector field)
     """
 
+    def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
+        """
+        Inference-time b₀ sampler. **Must match the training prior** to keep
+        train/infer distributions aligned.
+        Output: [B, Q, 4] in state space [cx, cy, log_w, log_h].
+        """
+        return torch.randn(B, Q, 4, device=device, dtype=dtype)
+
     def sample(
         self,
         b1: torch.Tensor,
@@ -77,6 +85,17 @@ class LinearTrajectory:
     → Convert b_t_cx to state space for model input
     → Vector field in state space: d/dt[log(w_t)] = (w₁-w₀) / w_t  (time-dependent)
     """
+
+    def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
+        """
+        Inference-time b₀ sampler — matches training prior: uniform in cxcywh
+        then converted to state space. Without this, train/infer distributions
+        don't align (randn in state space sees log_w ∈ [~-3, 3] but training
+        log_w lives in [~-3, 0]).
+        Output: [B, Q, 4] in state space [cx, cy, log_w, log_h].
+        """
+        b0_cx = torch.rand(B, Q, 4, device=device, dtype=dtype) * 0.9 + 0.05
+        return cxcywh_to_state(b0_cx)
 
     def sample(
         self,

@@ -37,6 +37,20 @@ _(없음)_
 
 ## ✅ Resolved
 
+### EuclideanTrajectory train/infer prior 불일치 → 공정 비교 불가
+- **Date**: 2026-04-22 (open) → 2026-04-22 (resolved)
+- **Area**: model
+- **Files**: `model/trajectory.py`, `model/flow_matching.py`, `script/trajectory_gif.py`
+- **Severity**: major (Phase 4 E1 ablation 전에 해결 필요)
+- **Symptom**: Euclidean trajectory가 overfit 실패 — 학습 loss는 낮아져도 추론 궤적이 GT에 수렴 안 함.
+- **Root cause**: `EuclideanTrajectory.sample`은 `b₀ ~ U([0.05, 0.95])` in cxcywh로 학습. 그러나 `RiemannianFlowDet.forward_inference`는 trajectory 구분 없이 `torch.randn` in state space로 `b`를 초기화 → Euclidean 추론은 학습에서 본 적 없는 분포로 시작.
+- **Fix**: `RiemannianTrajectory`/`EuclideanTrajectory`에 `init_noise(B, Q, device)` 메서드 추가. `forward_inference`가 이 훅을 호출하게 수정.
+- **Verification**: 공정 비교 (5000 step, cosine, ODE 50, 1-image overfit):
+  - Riemannian: tail₁₀₀ 0.026, max_err **10 px**
+  - Euclidean:  tail₁₀₀ 0.412, max_err **196 px**
+  - Euclidean은 공정 비교에서도 Riemannian 대비 대폭 뒤처짐 — time-dependent 벡터장의 본질적 어려움으로 확인. Riemannian 우위는 bug가 아닌 **이론적 차이**.
+- **Follow-up**: `experiments/e0_mb5_overfit/report.md` section 9 참고.
+
 ### FlowDiT에 per-query positional embedding 부재 → class-indexed 1-to-1 매칭 불가
 - **Date**: 2026-04-22 (open) → 2026-04-22 (resolved)
 - **Area**: model
