@@ -7,10 +7,53 @@
 기존 검출 방식은 박스를 단일 스텝 회귀로 예측한다. 이 프로젝트는 박스 정제를 기하학적 box state space 위에서의 **연속 흐름(continuous flow)** 으로 모델링하며, flow matching으로 벡터 필드를 정의하고 학습한다.
 
 핵심 기여:
-- 기하학적 보간을 갖춘 box state space 정의
+- 기하학적 보간을 갖춘 box state space 정의 (`ℝ² × ℝ₊²`)
 - box 궤적 학습을 위한 flow matching objective
 - 벡터 필드 예측을 위한 DiT-style transformer
 - 반복적 추론 정제(iterative inference refinement)
+
+---
+
+## Riemannian vs Euclidean — Toy 시각 비교
+
+1장의 합성 MNIST Box 이미지(0~9 전체 10 digit, scale 14~56px, 256×256 canvas)에서 두 trajectory를 **완전히 동일한 조건**으로 비교:
+- 같은 `N(0, I) in state space` prior · 같은 seed → **좌·우 init 박스 완전 동일** (t=0.00 프레임 확인)
+- 유일한 차이: DiT 중간 state space를 **Riemannian 보간**으로 만드느냐, **Euclidean 보간**으로 만드느냐
+- 5000 step · cosine LR 3e-4 · 50-step Euler ODE · 1-image overfit
+
+![Riemannian vs Euclidean trajectory](docs/assets/trajectory_compare.gif)
+
+> 좌: **Riemannian** (log-scale state space geodesic, ours) · 우: **Euclidean** (cxcywh 선형 보간, baseline)
+> t=0은 양쪽 동일 → t=1에서 Riemannian이 10개 GT에 타이트하게 수렴, Euclidean은 worst-case 박스가 어긋남.
+
+| Trajectory | tail₁₀₀ loss | mean err (px) | max err (px) |
+|---|---|---|---|
+| **Riemannian** (ours) | **0.028** | **5.3** | **16.9** |
+| Euclidean (baseline) | 0.056 | 6.1 | 49.1 |
+
+Mean err는 유사하지만 **worst-case(max err) · tail loss에서 2~3배 차이** — Riemannian의 우위는 prior 차이가 아닌 **target vector field의 구조**(constant vs time-dependent)에서 온다.
+
+### 학습 안정성 (robustness)
+
+![Loss curve compare](docs/assets/loss_compare.png)
+
+좌: 전체 학습 궤적(log y). 우: tail 40% 확대.
+
+| variant | tail mean | tail std | **tail p99** |
+|---|---|---|---|
+| **Riemannian** | 0.029 | **0.072** | **0.231** |
+| Euclidean | 0.504 | 5.014 | 11.15 |
+
+Euclidean은 median은 낮지만 **간헐적으로 거대한 loss spike** 발생 — `u_t ∝ 1/w_t`가 작은 박스에서 발산. Riemannian은 `u_t = b₁−b₀` 상수라 전 구간 균일하게 안정 → **std 70×, p99 48× 차이** = 학습 안정성 우위의 정량적 증거.
+
+### 재현
+
+```bash
+bash experiments/e1_unified_prior_fair_compare/run.sh
+```
+
+- 설계·결과 세부: [`experiments/e1_unified_prior_fair_compare/report.md`](experiments/e1_unified_prior_fair_compare/report.md)
+- 이론·구현 분석 + 모델 다이어그램: [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) (section 9)
 
 ## 데이터셋
 

@@ -1,0 +1,35 @@
+# Variant D — 결합: 길게 + cosine decay + ODE 50 + 모델 살짝 크게
+# 가설: B+C 결합에 모델 용량 확장(192→256, depth 4→6)이 더해지면
+#       1장 overfit이 "거의 perfect"(max_err < 2~3px)에 도달한다.
+# 이것이 MB5 "완성된 초기 실험 세팅"의 목표.
+__tag__: D_combined
+__max_steps__: 5000
+__lr__: 3.0e-4
+__lr_schedule__: cosine
+__ode_steps__: 50
+
+dataset: mnist_box
+mnist_image_size: 256
+mnist_scale_range: [14, 56]
+mnist_num_samples_train: 1
+mnist_num_samples_val: 1
+mnist_bbox_mode: fixed
+mnist_background: zero
+min_size: 256
+max_size: 256
+
+hidden_dim: 256
+num_layers: 6
+num_heads: 8
+mlp_ratio: 4
+num_queries: 10
+backbone_type: fpn
+backbone_pretrained: true
+trajectory: riemannian
+
+batch_size: 1
+num_workers: 0
+pin_memory: false
+weight_decay: 0.0
+grad_clip_norm: 1.0
+seed: 0

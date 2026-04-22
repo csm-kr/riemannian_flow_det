@@ -1,97 +1,47 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Claude Code가 항상 적용하는 **최소 규칙** + 상세 문서 **포인터**.
+상세 내용은 해당 작업을 할 때만 읽는다.
 
 ---
 
-## Read This First
+## 문서 구조 (역할 분리)
 
-항상 먼저 읽기:
-- `docs/plan_todo.md`
-
-model, loss, trajectory 등 내부 설계를 다룰 때만 읽기:
-- `docs/problem_statement.md`
-
-이슈가 해결되지 않을 때만 읽기:
-- `docs/issues.md`
-
----
-
-## 프로젝트 개요
-
-**Geometry-aware continuous box trajectory modeling for object detection.**
-
-기존 detection의 one-step box regression을 넘어, box state space(`ℝ² × ℝ₊²`) 위에서 flow matching으로 연속 궤적을 학습하는 연구 코드베이스.
-3개 core 실험 → boosting 순서로 개발.
+| 파일 | 역할 | 업데이트 시점 |
+|------|------|--------------|
+| `docs/ROADMAP.md` | **큰 설계** — Phase 단위 목적·이유·방향 | Phase 추가/재배치 등 구조 변경 시 |
+| `docs/plans/<주제>_plan.md` | **세부 설계** — 개별 작업·실험의 구체 설계 (하위 폴더 없이 평면 구조) | 새 작업 착수 전 작성 |
+| `docs/TODO.md` | **체크리스트** — ROADMAP Phase 구조를 미러링한 실행 트래커 | task 진행/완료 시마다 |
+| `docs/ISSUES.md` | **이슈 로그** — 막혔을 때만 기록 | 블로커 발생 / 해결 시 |
+| `experiments/e<번호>_<주제>/` | **실험 단위** — report·variant configs·run script (자기완결 unit) | 의미 있는 ablation/비교를 낼 때마다 (관리 규약 [`experiments/CLAUDE.md`](experiments/CLAUDE.md)) |
 
 ---
 
-## 기술 스택
+## Plans & TODO (항상 적용)
 
-- **Python 3.10+**, PyTorch 2.x, torchvision
-- **ConfigArgParse** (추후 Hydra 마이그레이션 가능 — config 접근은 `utils/config.py`로 추상화)
-- **TensorBoard** (`torch.utils.tensorboard`) — 학습 tracking
-- pycocotools — COCO annotation 로드
-- Detectron2 — 구현 도구 (datasets, transforms, evaluators 한정, 논문 기여 아님)
-- GPU: 1장, 96GB VRAM
-
----
-
-## 프로젝트 구조
-
-```
-dataset/    # COCO/VOC 래퍼, box 포맷 변환, transforms, collate
-model/      # backbone, DiT blocks, flow matching, trajectory, loss
-script/     # train.py, eval.py, infer.py, visualize_trajectory.py
-configs/    # 실험별 YAML (base / coco / voc / exp1~3 / boosting)
-utils/      # config, logger, seed, checkpoint, metrics, viz
-docs/       # problem_statement, plan_todo, paper_outline
-outputs/    # checkpoints, logs, figures (git 미추적)
-```
-
-> 구조는 아직 확정이 아니며 실험 진행에 따라 변경될 수 있음.
+1. 새 작업/실험/리팩토링 → `docs/plans/<주제>_plan.md`에 세부 설계 작성 (**하위 폴더 만들지 않음, 파일명은 `*_plan.md` 접미사로 통일**, 예: `docs/plans/mnist_box_plan.md`)
+2. 해당 작업을 `docs/TODO.md`에 추가 — **ROADMAP.md의 Phase 구조를 그대로 따라가며 Phase 단위 + 하위 task 모두 표시**
+3. 상태 표기는 **Unicode 이모지**로 통일 (GFM task list 대신 — 모든 미리보기 호환): ✅ 완료 · 🔄 진행 중 · ⬜ 예정. Phase 하위 task가 전부 ✅이면 Phase도 ✅
+4. **ROADMAP과 TODO의 Phase 목록/순서는 항상 동기화** — Phase 추가·변경·재배치 시 두 파일 함께 업데이트
+5. 막혔을 때만 `docs/ISSUES.md`에 템플릿 채워 기록
+6. **실험(ablation / 비교 / sweep)은 모두 `experiments/e<번호>_<주제>/` 단위로 관리** — 규약은 [`experiments/CLAUDE.md`](experiments/CLAUDE.md). variant config + `report.md` + `run.sh`를 한 단위로 묶고, 완료 시 `experiments/README.md` 목록에 등록.
+7. 모든 문서성 `.md`는 `docs/` 안에 둔다 (예외: `CLAUDE.md`, `README.md`, `LICENSE.md`, `model/CLAUDE.md`, `experiments/CLAUDE.md`, `experiments/e*/report.md`는 위치 고정)
 
 ---
 
-## 박스 포맷 규약
+## Reference (필요할 때만 읽기)
 
-- **기준 포맷**: `cxcywh` normalized — `[cx, cy, w, h]` ∈ (0, 1)
-- **State space** (모델 내부): `[cx, cy, log_w, log_h]` — `dataset/box_ops.py`의 `cxcywh_to_state` / `state_to_cxcywh` 사용
-- 파이프라인: `xyxy pixel` (로드) → `cxcywh pixel` → `normalized cxcywh` (입력) → `log-scale state` (모델 내부)
-
----
-
-## 자주 사용하는 명령어
-
-실행 명령어 전체는 `README.md` 참조.
-
-```bash
-# Docker (개발용 — 코드 마운트, 수정 즉시 반영)
-docker compose up --build -d   # 처음 or Dockerfile 변경 시
-docker compose up -d           # 이후 재실행
-docker compose exec rflow bash  # 실행 중인 컨테이너 접속
-```
-
----
-
-## 코딩 규칙
-
-**함수 docstring** — 모든 주요 함수에 필수:
-```python
-def forward(self, images, boxes, t):
-    """
-    Purpose: Predict vector field for box states at time t.
-    Inputs:
-        images: [B, 3, H, W], float32 — normalized
-        boxes:  [B, N, 4],    float32 — normalized cxcywh
-        t:      [B],          float32 — time in [0, 1]
-    Outputs:
-        v:      [B, N, 4],    float32 — vector field in box state space
-    """
-```
-
-**모듈 테스트** — 각 파일 하단에 `if __name__ == "__main__":` 블록 포함.
-최소 shape assert + sanity check. 추후 복잡해지면 `pytest` + `tests/` 디렉토리로 이동.
+| 주제 | 파일 |
+|------|------|
+| 현재 작업 / 체크리스트 | `docs/TODO.md` |
+| 전체 로드맵 (Phase 0~4) | `docs/ROADMAP.md` |
+| 개별 작업 세부 설계 | `docs/plans/<주제>_plan.md` |
+| **실험 기록 (report/variants/run)** | `experiments/<id>/` + `experiments/CLAUDE.md` |
+| 미해결 이슈 | `docs/ISSUES.md` |
+| 프로젝트 개요 · 기술 스택 · 구조 · Docker | `docs/overview.md` |
+| 코딩 규칙 · Git · 박스 포맷 · 주의사항 | `docs/conventions.md` |
+| 모델 내부 설계 (DiT / flow / trajectory) | `docs/problem_statement.md`, `docs/model_plan.md`, `model/CLAUDE.md` |
+| 실행 명령 전체 | `README.md` |
 
 ---
 
@@ -100,30 +50,5 @@ def forward(self, images, boxes, t):
 | 키워드 | 동작 |
 |--------|------|
 | `/test [파일]` | 해당 파일의 `__main__` 블록 실행으로 검증 |
-| `/ship [파일]` | 테스트 통과 → `git add` → `git commit` → `git push` 순서 실행. 테스트 실패 시 중단 |
-| `/done [항목ID]` | `plan_todo.md`에서 해당 항목 `[x]` 처리 후 다음 TODO 출력 |
-
----
-
-## Git 관리 규약
-
-- 작업 단위마다 `feature/한일` 브랜치 생성 후 push
-- 예시:
-  ```bash
-  git checkout -b feature/add-voc-dataset
-  # ... 작업 ...
-  git add <파일>
-  git commit -m "feat: VOC dataset 래퍼 구현"
-  git push origin feature/add-voc-dataset
-  ```
-- 브랜치 네이밍: `feature/` 접두사 + 작업 내용 (영문 소문자, `-` 구분)
-- main 브랜치 직접 push 금지 — PR을 통해 병합
-
----
-
-## 주의사항
-
-- `problem_statement.md`에 정의된 box state space(`ℝ² × ℝ₊²`)와 구현이 어긋나지 않도록 주의
-- Detectron2 API는 편의 도구 — 논문 기여와 혼동하지 말 것
-- `outputs/` 는 git 미추적. 체크포인트/로그 경로 하드코딩 금지, config에서 관리
-- config 시스템 변경(ConfigArgParse → Hydra) 시 `utils/config.py`만 수정하면 되도록 추상화 유지
+| `/ship [파일]` | 테스트 통과 → `git add` → `git commit` → `git push`. 실패 시 중단 |
+| `/done [항목ID]` | `docs/TODO.md`에서 해당 항목 ✅ 처리 후 다음 항목 출력 |
