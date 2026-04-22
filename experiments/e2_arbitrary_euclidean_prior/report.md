@@ -112,7 +112,18 @@ Key: **state interp 를 쓰면 prior 와 무관하게 Lipschitz 0** (constant fi
 - **행 차이 (prior)**: 5.6 → 2.6 (2.2× 개선), 30.5 → 35.8 (비슷)
 - **상호작용**: state interp 에서는 arb prior 가 도움, cxcywh interp 에서는 무관
 
-### 4.3 Trajectory GIF — 4-panel 비교
+### 4.3 Per-dim error breakdown (position vs size)
+
+학습 후 inference 의 per-dim 오차를 normalized cxcywh 공간에서 분리 측정 (`analyze_per_dim_err.py`):
+
+| variant | cx mean (px) | cy mean (px) | w mean (px) | h mean (px) | **pos L2 / size L2** |
+|---|---|---|---|---|---|
+| riemannian | 2.66 | 5.79 | 0.89 | 1.12 | **4.37×** |
+| riemannian_arb_prior | 67.6 | 46.9 | 11.4 | 16.7 | **4.02×** |
+
+→ **박스 크기는 잘 맞고, 위치가 어긋난다**. state space `[cx, cy, log_w, log_h]` 에 MSE loss 는 4 dim 균등 weight 지만, cxcywh 공간으로 변환 시 `∂w/∂log_w = w ≈ 0.14` 의 Jacobian 으로 **size 오차는 자동 축소, position 오차는 그대로**. 예상 비율 ≈ 1/w ≈ 7×, 측정 4×. 이 artifact 는 `docs/ISSUES.md` 에 기록 — Phase 3 에서 auxiliary `L1 + GIoU` loss 추가해 mAP 기준 재검증.
+
+### 4.4 Trajectory GIF — 4-panel 비교
 
 ![Trajectory 4-panel](../../docs/assets/e2_trajectory_compare.gif)
 
