@@ -22,8 +22,11 @@ experiments/
 3. **리포트는 요약만** — raw 로그/그림은 `outputs/…`에 두고, `report.md`에는 표/결론 중심으로 기록.
 4. **winner 선정** — ablation 종료 시 report에 "winner config" 명시 + 해당 variant를 후속 실험의 기준선으로 사용.
 
+관리 규약은 [`CLAUDE.md`](CLAUDE.md) 참조.
+
 ## 현재 실험 목록
 
 | ID | 주제 | 상태 | report |
 |----|------|------|--------|
-| e0 | MB5 1-image overfit ablation | ✅ 완료 | [e0_mb5_overfit/report.md](e0_mb5_overfit/report.md) |
+| e0 | MB5 1-image overfit ablation (hyperparam sweep) | ✅ 완료 | [e0_mb5_overfit/report.md](e0_mb5_overfit/report.md) |
+| e1 | Riemannian vs Euclidean 공정 비교 (통일 prior) | ✅ 완료 | [e1_unified_prior_fair_compare/report.md](e1_unified_prior_fair_compare/report.md) |

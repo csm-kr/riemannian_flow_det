@@ -14,24 +14,29 @@ LinearTrajectory (Euclidean baseline):
 """
 
 import torch
-from dataset.box_ops import cxcywh_to_state
+from dataset.box_ops import cxcywh_to_state, state_to_cxcywh
 
 
 class RiemannianTrajectory:
     """
     Geodesic on ℝ² × ℝ₊² — linear interpolation in log-scale state space.
 
-    b₀ ~ N(0, I) in state space (noise)
-    b₁ = cxcywh_to_state(boxes_gt)  (target)
-    b_t = (1-t)·b₀ + t·b₁          (linear = geodesic in log-space)
-    u_t* = b₁ − b₀                  (constant vector field)
+    b₀   ~ N(0, I) **directly in state space** [cx, cy, log_w, log_h] (standard
+           flow matching 관례: prior = 표준 Gaussian in the space where the flow lives)
+    b₁   = cxcywh_to_state(boxes_gt)       (target state)
+    b_t  = (1-t)·b₀ + t·b₁                 (linear in state = geodesic in ℝ²×ℝ₊²)
+    u_t* = b₁ − b₀                          (constant vector field in state)
+
+    주의: 이 prior는 **EuclideanTrajectory와 의도적으로 다르다**. 각 trajectory는
+    자신의 수학적 공간(Riemannian=state, Euclidean=cxcywh)에서 natural noise 분포를
+    갖는다. 통일하면 target `u_t`의 signal이 약해져 flow matching 학습이 저하된다
+    (e0 ablation 섹션 9.6 참고).
     """
 
     def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
         """
-        Inference-time b₀ sampler. **Must match the training prior** to keep
-        train/infer distributions aligned.
-        Output: [B, Q, 4] in state space [cx, cy, log_w, log_h].
+        Inference-time b₀ sampler — training `sample()`의 prior와 동일.
+        Output: [B, Q, 4] in state space, ~ N(0, I).
         """
         return torch.randn(B, Q, 4, device=device, dtype=dtype)
 
@@ -48,7 +53,7 @@ class RiemannianTrajectory:
         Outputs:
             b_t:   [B, N, 4] — interpolated state at time t
             u_t:   [B, N, 4] — target vector field (constant, = b1 − b0)
-            b0:    [B, N, 4] — noise sample
+            b0:    [B, N, 4] — noise sample in state space
         """
         b0  = torch.randn_like(b1)
         t_  = t[:, None, None]           # [B, 1, 1] for broadcasting
@@ -79,23 +84,25 @@ class LinearTrajectory:
     Euclidean baseline — linear interpolation in normalized cxcywh space.
     The vector field is NOT constant in state space (time-dependent).
 
-    b₀ ~ Uniform([0.05, 0.95]^4) in cxcywh (random noise boxes)
-    b₁ = boxes_gt in cxcywh
-    b_t_cx = (1-t)·b₀ + t·b₁  (cxcywh space)
-    → Convert b_t_cx to state space for model input
-    → Vector field in state space: d/dt[log(w_t)] = (w₁-w₀) / w_t  (time-dependent)
+    b₀ ~ N(0, I) **in state space** (Riemannian과 동일한 prior — 공정 비교)
+    b₀_cx = state_to_cxcywh(b₀)          (cxcywh로 변환, w,h = exp(log_w,log_h))
+    b₁_cx = boxes_gt in cxcywh
+    b_t_cx = (1-t)·b₀_cx + t·b₁_cx        (**Euclidean interpolation in cxcywh**)
+    b_t    = cxcywh_to_state(b_t_cx)       (DiT 입력용으로 다시 state로)
+    u_t*   = d/dt[b_t_state]               (time-dependent in state)
+
+    핵심: Riemannian과 **같은 init b₀** (state space N(0,I)) 에서 출발하되,
+    DiT에 들어가기 전 "중간 공간"이 cxcywh (Euclidean 보간) ↔ state (Riemannian 보간)
+    으로 갈라진다. 이것이 두 방법의 유일한 이론적 차이.
     """
 
     def init_noise(self, B: int, Q: int, device, dtype=torch.float32) -> torch.Tensor:
         """
-        Inference-time b₀ sampler — matches training prior: uniform in cxcywh
-        then converted to state space. Without this, train/infer distributions
-        don't align (randn in state space sees log_w ∈ [~-3, 3] but training
-        log_w lives in [~-3, 0]).
+        Inference-time b₀ — Riemannian과 동일한 state space N(0, I).
+        두 trajectory가 **같은 seed에서 완전히 동일한 b₀**를 갖도록 한다.
         Output: [B, Q, 4] in state space [cx, cy, log_w, log_h].
         """
-        b0_cx = torch.rand(B, Q, 4, device=device, dtype=dtype) * 0.9 + 0.05
-        return cxcywh_to_state(b0_cx)
+        return torch.randn(B, Q, 4, device=device, dtype=dtype)
 
     def sample(
         self,
@@ -108,22 +115,24 @@ class LinearTrajectory:
             b1_cx: [B, N, 4], float32 — target in normalized cxcywh
             t:     [B],        float32 — timestep in [0, 1]
         Outputs:
-            b_t:   [B, N, 4] — interpolated state (state space)
+            b_t:   [B, N, 4] — interpolated state (state space, model input)
             u_t:   [B, N, 4] — target vector field (state space, time-dependent)
         """
-        # Sample noise boxes uniformly in cxcywh (ensures w,h > 0)
-        b0_cx = torch.rand_like(b1_cx) * 0.9 + 0.05   # [B, N, 4] in (0.05, 0.95)
+        # b₀를 state space에서 sample (Riemannian과 동일 분포)
+        b0 = torch.randn_like(b1_cx)                   # [B, N, 4] in state
+        # cxcywh로 변환해서 Euclidean interpolation 수행
+        b0_cx = state_to_cxcywh(b0)                    # w,h = exp(log_w,log_h) > 0
 
-        t_    = t[:, None, None]
-        b_t_cx = (1.0 - t_) * b0_cx + t_ * b1_cx       # [B, N, 4] in cxcywh
+        t_     = t[:, None, None]
+        b_t_cx = (1.0 - t_) * b0_cx + t_ * b1_cx       # [B, N, 4] linear in cxcywh
 
-        # Model input: convert cxcywh → state space
+        # Model input: cxcywh → state (DiT는 항상 state 받음)
         b_t = cxcywh_to_state(b_t_cx)
 
         # Target vector field in state space: d/dt[b_t_state]
-        # For cx, cy: d/dt[cx_t] = cx₁ − cx₀  (constant)
-        # For w, h:   d/dt[log(w_t)] = (w₁ − w₀) / w_t  (time-dependent)
-        dcx = b1_cx[..., 0] - b0_cx[..., 0]   # [B, N]
+        # For cx, cy: d/dt[cx_t] = cx₁ − cx₀             (constant in cx/cy)
+        # For w, h:   d/dt[log(w_t)] = (w₁ − w₀) / w_t   (time-dependent!)
+        dcx = b1_cx[..., 0] - b0_cx[..., 0]
         dcy = b1_cx[..., 1] - b0_cx[..., 1]
         w_t = b_t_cx[..., 2].clamp(min=1e-6)
         h_t = b_t_cx[..., 3].clamp(min=1e-6)

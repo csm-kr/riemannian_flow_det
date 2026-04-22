@@ -55,7 +55,8 @@
   - ✅ MB5 single-image overfit — `script/overfit_mnist_box.py`, loss 4.63→0.026, max_err 0.11 / `outputs/mb5_overfit/`
   - ✅ (bonus) FlowDiT에 learnable query positional embedding 추가 — class-indexed 매칭 버그 해결 ([ISSUES](ISSUES.md))
   - ✅ (bonus) e0 ablation 실험 설계 — variants A/B/C/D, winner=B (5000 step + cosine), max_err 34→22px [`experiments/e0_mb5_overfit/report.md`](../experiments/e0_mb5_overfit/report.md)
-  - ✅ (bonus) `trajectory.init_noise()` 훅 — Riemannian vs Euclidean 공정 비교 (ODE 50: Rm tail 0.026/max_err 10px vs Eu tail 0.41/max_err 196px). README에 GIF 임베드, report에 모델 다이어그램 + 공간 전이 분석 섹션 추가.
+  - ✅ (bonus) `trajectory.init_noise()` 훅 — Riemannian vs Euclidean 공정 비교. README에 GIF 임베드, report에 모델 다이어그램 + 공간 전이 분석 섹션 추가.
+  - ✅ (bonus) **e1 unified-prior fair comparison** — 두 trajectory가 동일한 `N(0,I) state prior`에서 출발(같은 seed → 같은 init box)하도록 재설계. 차이는 interpolation 공간(state vs cxcywh) 하나로 국한. Rm tail 0.021/max_err 11px vs Eu tail 0.11/max_err 27px — Riemannian 우위가 **이론적 구조 차이**(constant vs time-dependent field)에서 옴을 확증 [`experiments/e1_unified_prior_fair_compare/report.md`](../experiments/e1_unified_prior_fair_compare/report.md)
 
 ---
 

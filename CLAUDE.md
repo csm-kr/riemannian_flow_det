@@ -13,6 +13,7 @@ Claude Code가 항상 적용하는 **최소 규칙** + 상세 문서 **포인터
 | `docs/plans/<주제>_plan.md` | **세부 설계** — 개별 작업·실험의 구체 설계 (하위 폴더 없이 평면 구조) | 새 작업 착수 전 작성 |
 | `docs/TODO.md` | **체크리스트** — ROADMAP Phase 구조를 미러링한 실행 트래커 | task 진행/완료 시마다 |
 | `docs/ISSUES.md` | **이슈 로그** — 막혔을 때만 기록 | 블로커 발생 / 해결 시 |
+| `experiments/e<번호>_<주제>/` | **실험 단위** — report·variant configs·run script (자기완결 unit) | 의미 있는 ablation/비교를 낼 때마다 (관리 규약 [`experiments/CLAUDE.md`](experiments/CLAUDE.md)) |
 
 ---
 
@@ -23,7 +24,8 @@ Claude Code가 항상 적용하는 **최소 규칙** + 상세 문서 **포인터
 3. 상태 표기는 **Unicode 이모지**로 통일 (GFM task list 대신 — 모든 미리보기 호환): ✅ 완료 · 🔄 진행 중 · ⬜ 예정. Phase 하위 task가 전부 ✅이면 Phase도 ✅
 4. **ROADMAP과 TODO의 Phase 목록/순서는 항상 동기화** — Phase 추가·변경·재배치 시 두 파일 함께 업데이트
 5. 막혔을 때만 `docs/ISSUES.md`에 템플릿 채워 기록
-6. 모든 문서성 `.md`는 `docs/` 안에 둔다 (예외: `CLAUDE.md`, `README.md`, `LICENSE.md`, `model/CLAUDE.md`는 위치 고정)
+6. **실험(ablation / 비교 / sweep)은 모두 `experiments/e<번호>_<주제>/` 단위로 관리** — 규약은 [`experiments/CLAUDE.md`](experiments/CLAUDE.md). variant config + `report.md` + `run.sh`를 한 단위로 묶고, 완료 시 `experiments/README.md` 목록에 등록.
+7. 모든 문서성 `.md`는 `docs/` 안에 둔다 (예외: `CLAUDE.md`, `README.md`, `LICENSE.md`, `model/CLAUDE.md`, `experiments/CLAUDE.md`, `experiments/e*/report.md`는 위치 고정)
 
 ---
 
@@ -34,6 +36,7 @@ Claude Code가 항상 적용하는 **최소 규칙** + 상세 문서 **포인터
 | 현재 작업 / 체크리스트 | `docs/TODO.md` |
 | 전체 로드맵 (Phase 0~4) | `docs/ROADMAP.md` |
 | 개별 작업 세부 설계 | `docs/plans/<주제>_plan.md` |
+| **실험 기록 (report/variants/run)** | `experiments/<id>/` + `experiments/CLAUDE.md` |
 | 미해결 이슈 | `docs/ISSUES.md` |
 | 프로젝트 개요 · 기술 스택 · 구조 · Docker | `docs/overview.md` |
 | 코딩 규칙 · Git · 박스 포맷 · 주의사항 | `docs/conventions.md` |
