@@ -16,20 +16,25 @@
 
 ## Riemannian vs Euclidean — Toy 시각 비교
 
-1장의 합성 MNIST Box 이미지(0~9 전체 10 digit, scale 14~56px, 256×256 canvas)에 두 trajectory를 **동일 조건**(5000 step, cosine LR, 50-step Euler ODE)으로 overfit한 결과 궤적:
+1장의 합성 MNIST Box 이미지(0~9 전체 10 digit, scale 14~56px, 256×256 canvas)에서 두 trajectory를 **완전히 동일한 조건**으로 비교:
+- 같은 `N(0, I) in state space` prior · 같은 seed → **좌·우 init 박스 완전 동일** (t=0.00 프레임 확인)
+- 유일한 차이: DiT 중간 state space를 **Riemannian 보간**으로 만드느냐, **Euclidean 보간**으로 만드느냐
+- 5000 step · cosine LR 3e-4 · 50-step Euler ODE · 1-image overfit
 
 ![Riemannian vs Euclidean trajectory](docs/assets/trajectory_compare.gif)
 
 > 좌: **Riemannian** (log-scale state space geodesic, ours) · 우: **Euclidean** (cxcywh 선형 보간, baseline)
-> 같은 init noise `b₀`에서 시작 → t=1까지 10개 query가 GT digit에 수렴.
-> Riemannian은 모든 box가 GT에 타이트하게 덮이지만, Euclidean은 size/position이 어긋남.
+> t=0은 양쪽 동일 → t=1에서 Riemannian이 10개 GT에 타이트하게 수렴, Euclidean은 worst-case 박스가 어긋남.
 
 | Trajectory | tail₁₀₀ loss | mean err (px) | max err (px) |
 |---|---|---|---|
-| **Riemannian** (ours) | **0.026** | **4.0** | **10.0** |
-| Euclidean (baseline) | 0.41 | 41.5 | 196.8 |
+| **Riemannian** (ours) | **0.021** | **4.5** | **11.2** |
+| Euclidean (baseline) | 0.111 | 4.7 | 27.4 |
 
-본 실험의 세부 설계·모델 다이어그램·코드 트레이스는 [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) 참고.
+Mean err는 유사하지만 **worst-case(max err) · tail loss에서 2.5~5배 차이** — Riemannian의 우위는 prior 차이가 아닌 **target vector field의 구조**(constant vs time-dependent)에서 온다.
+
+설계·결과 세부: [`experiments/e1_unified_prior_fair_compare/report.md`](experiments/e1_unified_prior_fair_compare/report.md)
+이론·구현 분석 + 모델 다이어그램: [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) (section 9)
 
 ## 데이터셋
 
