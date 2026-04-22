@@ -104,11 +104,43 @@ Variant 파일: `variants/riemannian.yaml`, `variants/euclidean.yaml` (trajector
 
 ## 5. 시각 결과
 
+### 5.1 Trajectory GIF
+
 두 경로에 동일한 GIF가 저장됨:
 - **Canonical (git-tracked)**: [`docs/assets/trajectory_compare.gif`](../../docs/assets/trajectory_compare.gif) — README.md 임베드용, 최신 run 결과 고정.
 - **Run 아티팩트**: `outputs/e1_unified_prior_fair_compare/gif/trajectory_compare.gif` — `run.sh` 실행 시 갱신. git 미추적.
 
 51 frame · 12 fps · 768×768 확장 canvas side-by-side (Rm / Eu).
+
+### 5.2 Loss curve — robustness 비교
+
+![Loss compare](../../docs/assets/loss_compare.png)
+
+좌: 전체 학습 궤적(log y-scale), 각 raw loss(faded) + EMA smoothed(solid).
+우: tail 40% 확대. 음영은 robust 분산 지표.
+
+**Tail 10% loss 통계** (마지막 500 step)
+
+| variant | mean | median | **std** | p90 | **p99** |
+|---|---|---|---|---|---|
+| Riemannian | 0.029 | 0.013 | **0.072** | 0.061 | **0.231** |
+| Euclidean  | 0.504 | 0.002 | **5.014** | 0.037 | **11.15** |
+
+**해석** — 두 방법 모두 `t ~ U[0,1]` 샘플링으로 step 단위 loss는 noisy하지만:
+
+1. **Riemannian은 spike가 거의 없음** — p99 0.23, std 0.07. 학습이 **전체 t 구간에서 균일하게 안정적**.
+2. **Euclidean은 간헐적 거대 spike** — p99 **11.15** (Rm 대비 **48×**), std **5.01** (Rm 대비 **70×**). Median은 낮지만(0.002) **worst-case가 수십~수백 배**로 튄다.
+3. 원인: Euclidean의 target `u_t ∝ 1/w_t` — 작은 박스(w_t → 0)에서 field가 발산. 특정 `t` 값에서 극단적 gradient 발생.
+
+즉 Euclidean은 "대부분의 step은 낮은 loss지만 때때로 폭발" → **학습 안정성(robustness) 측면에서 Riemannian이 우위**. 이 차이는 최종 max_err 격차(17 vs 49 px)와 직결.
+
+**생성**: `bash experiments/e1_unified_prior_fair_compare/run.sh` 실행 시 자동. 또는 직접:
+```bash
+python script/plot_loss_compare.py \
+    --variants riemannian:outputs/e1_unified_prior_fair_compare/riemannian/loss_log.txt \
+               euclidean:outputs/e1_unified_prior_fair_compare/euclidean/loss_log.txt \
+    --out outputs/e1_unified_prior_fair_compare/loss_compare.png
+```
 
 - **t=0.00**: 좌/우 **완전히 동일한 init 박스**. 일부 박스는 이미지 밖 (state Gaussian의 자연스러운 분포).
 - **t=0.5**: 양쪽 다 박스를 MNIST 영역으로 끌어옴. Riemannian이 약간 빠름.

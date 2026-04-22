@@ -37,13 +37,25 @@ python script/trajectory_gif.py \
   --train_steps 5000 --lr 3e-4 --lr_schedule cosine --ode_steps 50 --fps 12 \
   --out_dir "$OUT_ROOT/gif"
 
-# canonical 위치(docs/assets/)에 동기화 — README.md 임베드용
+# Loss curve 비교 플롯 — robustness 시각화
+echo ""
+echo "=============================================="
+echo " Loss curve compare (robustness)"
+echo "=============================================="
+python script/plot_loss_compare.py \
+  --variants riemannian:"$OUT_ROOT/riemannian/loss_log.txt" \
+             euclidean:"$OUT_ROOT/euclidean/loss_log.txt" \
+  --out "$OUT_ROOT/loss_compare.png" \
+  --title "Riemannian vs Euclidean — 1-image overfit (5000 step, cosine, ODE 50)"
+
+# canonical 위치(docs/assets/)에 동기화 — README.md/report 임베드용
 mkdir -p docs/assets
 cp "$OUT_ROOT/gif/trajectory_compare.gif" docs/assets/
 cp "$OUT_ROOT/gif/frame_t_0.00.png" docs/assets/
 cp "$OUT_ROOT/gif/frame_t_0.50.png" docs/assets/
 cp "$OUT_ROOT/gif/frame_t_1.00.png" docs/assets/
-echo "[sync] outputs → docs/assets/ 갱신 완료"
+cp "$OUT_ROOT/loss_compare.png" docs/assets/
+echo "[sync] outputs → docs/assets/ 갱신 완료 (GIF + frames + loss_compare)"
 
 echo ""
 echo "=============================================="
