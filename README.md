@@ -31,12 +31,29 @@
 | **Riemannian** (ours) | **0.028** | **5.3** | **16.9** |
 | Euclidean (baseline) | 0.056 | 6.1 | 49.1 |
 
-> 재현: `bash experiments/e1_unified_prior_fair_compare/run.sh`. flow matching의 `t` 샘플링 noise로 run 간 ±30% 변동.
-
 Mean err는 유사하지만 **worst-case(max err) · tail loss에서 2~3배 차이** — Riemannian의 우위는 prior 차이가 아닌 **target vector field의 구조**(constant vs time-dependent)에서 온다.
 
-설계·결과 세부: [`experiments/e1_unified_prior_fair_compare/report.md`](experiments/e1_unified_prior_fair_compare/report.md)
-이론·구현 분석 + 모델 다이어그램: [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) (section 9)
+### 학습 안정성 (robustness)
+
+![Loss curve compare](docs/assets/loss_compare.png)
+
+좌: 전체 학습 궤적(log y). 우: tail 40% 확대.
+
+| variant | tail mean | tail std | **tail p99** |
+|---|---|---|---|
+| **Riemannian** | 0.029 | **0.072** | **0.231** |
+| Euclidean | 0.504 | 5.014 | 11.15 |
+
+Euclidean은 median은 낮지만 **간헐적으로 거대한 loss spike** 발생 — `u_t ∝ 1/w_t`가 작은 박스에서 발산. Riemannian은 `u_t = b₁−b₀` 상수라 전 구간 균일하게 안정 → **std 70×, p99 48× 차이** = 학습 안정성 우위의 정량적 증거.
+
+### 재현
+
+```bash
+bash experiments/e1_unified_prior_fair_compare/run.sh
+```
+
+- 설계·결과 세부: [`experiments/e1_unified_prior_fair_compare/report.md`](experiments/e1_unified_prior_fair_compare/report.md)
+- 이론·구현 분석 + 모델 다이어그램: [`experiments/e0_mb5_overfit/report.md`](experiments/e0_mb5_overfit/report.md) (section 9)
 
 ## 데이터셋
 
