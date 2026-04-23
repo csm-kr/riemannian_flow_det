@@ -59,14 +59,15 @@
   - ✅ (bonus) **e1 unified-prior fair comparison** — 두 trajectory가 동일한 `N(0,I) state prior`에서 출발(같은 seed → 같은 init box)하도록 재설계. 차이는 interpolation 공간(state vs cxcywh) 하나로 국한. Rm tail 0.021/max_err 11px vs Eu tail 0.11/max_err 27px — Riemannian 우위가 **이론적 구조 차이**(constant vs time-dependent field)에서 옴을 확증 [`experiments/e1_unified_prior_fair_compare/report.md`](../experiments/e1_unified_prior_fair_compare/report.md)
   - ✅ (bonus) **e2 2×2 ablation: prior × interp space + multi-seed 재검증** — `state N(0,I)` vs `arb clip(N(0.5,1/6²),0.02,1) cxcywh` prior × `state` vs `cxcywh` interp. **초기 single-seed 결론 (arb_prior winner) 은 철회** — 3 seed sweep 결과 `riemannian_arb_prior` 는 [35, 32, **2.6**] px 로 13× 흔들림. **Multi-seed winner = `riemannian` baseline** (mean_err 6.6 ± 4.0 px, 유일하게 low variance). state interp > cxcywh interp 는 tail loss 40× 차이로 확인. Methodological take-away: 1-image overfit 은 반드시 3+ seed 로 평가. `run_multiseed.sh` + `aggregate_multiseed.py` 인프라 도입. 추가 artefact: `RiemannianTrajectoryArbPrior`, 4-panel GIF, raw training image (노란 박스 해명). [`experiments/e2_arbitrary_euclidean_prior/report.md`](../experiments/e2_arbitrary_euclidean_prior/report.md)
   - ✅ (bonus) **e2 root cause 규명 — independent coupling ill-posedness** — arb_prior 실패가 prior 자체가 아니라 **flow matching 의 independent coupling + prior/target support overlap** 조합에서 **marginal vector field 가 0 으로 붕괴** 하기 때문임을 이론적으로 확립. baseline `riemannian` 이 잘 되는 이유도 "support 가 우연히 분리돼 있어 이 문제를 회피" 로 재해석. Fix plan: [`docs/plans/ot_coupling_plan.md`](plans/ot_coupling_plan.md) (mini-batch OT coupling, Tong 2023 / Pooladian 2023 계열) 을 Phase 3 `train.py` 에 탑재 예정. ISSUES.md 재작성 ([`docs/ISSUES.md`](ISSUES.md) "arb_prior 가 학습 안 됨" 섹션).
+  - ✅ (bonus) **e3 OT coupling verification — 가설 기각** — `OTCoupledTrajectory` (per-image Q×Q Hungarian) 구현 후 4×3 multi-seed sweep. arb_prior variance 복원 실패 (riemannian_arb_prior 23→32 px, std 14.65→13.36 거의 불변). Baseline 은 오히려 2.5-4× 악화 (riemannian 6.6→16.1 px). 해석: batch=1, Q=10 setting 에서 per-image Hungarian 은 query 간 local reassignment 만 수행 → OT 로 좁혀진 학습 manifold 는 inference 의 random b₀ 분포와 mismatch. OT 단독은 정답 아님. 다음 후보: (a) μ=-2.0 shift (support 분리 독립 검증), (b) loss re-weighting [5,5,1,1], (c) batch>1 에서 OT 재평가. [`experiments/e3_ot_coupling/report.md`](../experiments/e3_ot_coupling/report.md)
 
 ---
 
 ## Phase 3 — `script/` + `utils/` 🔲
 
 - 🔄 **Phase 3** 학습 파이프라인
-  - ⬜ P3-OT **mini-batch OT coupling** — `OTCoupledTrajectory` wrapper 구현. e2 가 드러낸 independent coupling 결함 해결. 설계: [`plans/ot_coupling_plan.md`](plans/ot_coupling_plan.md)
-  - ⬜ P3-CFG config schema 정리 (`ot_coupling` default, seed 3+ 기본 실행 통합)
+  - ✅ P3-OT **mini-batch OT coupling** — `OTCoupledTrajectory` wrapper 구현 완료, e3 에서 검증 (가설 기각, toy 에서 해로움 확인). Phase 3 `train.py` 에서는 default **off** 유지, 옵션으로 제공. 설계: [`plans/ot_coupling_plan.md`](plans/ot_coupling_plan.md)
+  - ⬜ P3-CFG config schema 정리 (`ot_coupling: false` default, seed 3+ 기본 실행 통합)
   - ⬜ P3-TRAIN `script/train.py` — config 기반 end-to-end 학습 루프 + TensorBoard
   - ⬜ P3-EVAL `script/eval.py` — mAP / per-dim err 자동 집계, `aggregate_multiseed.py` 재활용
   - ⬜ P3-AUX position vs size 이슈 완화 — `L1 + GIoU(cxcywh)` auxiliary loss (ISSUES.md "position 오차 >> size 오차")

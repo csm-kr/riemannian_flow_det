@@ -11,6 +11,7 @@ from model.trajectory import (
     RiemannianTrajectoryArbPrior,
     LinearTrajectory,
     LinearTrajectoryArbPrior,
+    OTCoupledTrajectory,
 )
 
 
@@ -43,6 +44,7 @@ class RiemannianFlowDet(nn.Module):
         dinov2_model:    str = "dinov2_vits14",
         dinov2_freeze:   bool = False,
         trajectory_type: str = "riemannian",
+        ot_coupling:     bool = False,
     ):
         super().__init__()
         assert backbone_type in ("fpn", "dinov2"), \
@@ -67,13 +69,18 @@ class RiemannianFlowDet(nn.Module):
             "riemannian", "linear", "linear_arb_prior", "riemannian_arb_prior"
         ), f"Unknown trajectory_type: {trajectory_type}"
         if trajectory_type == "riemannian":
-            self.trajectory = RiemannianTrajectory()
+            base_traj = RiemannianTrajectory()
         elif trajectory_type == "linear":
-            self.trajectory = LinearTrajectory()
+            base_traj = LinearTrajectory()
         elif trajectory_type == "linear_arb_prior":
-            self.trajectory = LinearTrajectoryArbPrior()
+            base_traj = LinearTrajectoryArbPrior()
         else:
-            self.trajectory = RiemannianTrajectoryArbPrior()
+            base_traj = RiemannianTrajectoryArbPrior()
+
+        # Optional OT coupling wrapper — resolves independent-coupling
+        # ill-posedness (see docs/plans/ot_coupling_plan.md).
+        self.ot_coupling = bool(ot_coupling)
+        self.trajectory = OTCoupledTrajectory(base_traj) if self.ot_coupling else base_traj
         self.trajectory_type = trajectory_type
 
     # ── Training ──────────────────────────────────────────────────────────────
@@ -109,7 +116,7 @@ class RiemannianFlowDet(nn.Module):
             b1      = cxcywh_to_state(padded)           # [B, max_N, 4]
             b_t, u_t, _ = self.trajectory.sample(b1, t)
         else:
-            b_t, u_t = self.trajectory.sample(padded, t)
+            b_t, u_t, _ = self.trajectory.sample(padded, t)
 
         # Forward pass
         box_tokens = self.flow_dit(images, b_t, t)      # [B, max_N, dim]

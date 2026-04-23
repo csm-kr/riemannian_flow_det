@@ -27,4 +27,5 @@ def build_model(config) -> RiemannianFlowDet:
         dinov2_model        = _get("dinov2_model",        "dinov2_vits14"),
         dinov2_freeze       = _get("dinov2_freeze",       False),
         trajectory_type     = _get("trajectory",          "riemannian"),
+        ot_coupling         = _get("ot_coupling",         False),
     )

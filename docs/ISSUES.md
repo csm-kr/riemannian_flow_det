@@ -68,16 +68,16 @@
   3. B=1·5000 step overfit 민감도 — 위 구조적 null field 가 있으면 basin-of-attraction 이 좁아져 seed 간 variance 폭증.
 
 - **Fix 계획** (phase 별):
-  - **Phase 2.5 단기 해결 (불필요)**: arb_prior 실험은 이미 "coupling 결함의 증거" 로 역할 끝. `riemannian` baseline (support 분리) 을 winner 로 확정, arb prior 재시도는 OT coupling 도입 이후로 연기.
-  - **Phase 3 구조적 해결** (권장): `docs/plans/ot_coupling_plan.md` — `trajectory.sample()` 에 mini-batch OT `(b₀, b₁)` assignment 탑재. `train.py` 에 통합.
+  - **Phase 2.5 단기 해결 (불필요)**: arb_prior 실험은 이미 "coupling 결함의 증거" 로 역할 끝. `riemannian` baseline (support 분리) 을 winner 로 확정, arb prior 재시도는 후속 탐구 (아래 e3 결과 참고) 이후로 연기.
+  - **Phase 3 구조적 해결** (권장): `docs/plans/ot_coupling_plan.md` — `trajectory.sample()` 에 mini-batch OT `(b₀, b₁)` assignment 탑재. `train.py` 에 통합. **단 e3 결과를 보면 OT 단독은 부족, 배치+loss-weight 조합 시도 필요.**
   - **Phase 4 large-scale 검증**: VOC/COCO 에서 coupling 있을 때/없을 때 mAP 비교. Prior-agnostic robustness 확인.
 
 - **Mitigations (검토만, 채택 안 함)**:
-  - Per-dim loss weight `[5, 5, 1, 1]` — amplifier 2 만 완화, 구조적 null field 는 그대로.
-  - `μ = -2.0` 로 arb_prior 평균 이동해 support 분리 — "arb prior 의 원래 의도 (target 근접)" 를 해침. 실험적 가치 없음.
-  - OT coupling 이 정답, 나머지는 우회.
+  - Per-dim loss weight `[5, 5, 1, 1]` — amplifier 2 만 완화, 구조적 null field 는 그대로. **e3 결과 이후 재검토 — OT 단독이 실패했으니 이것도 함께 시도할 가치 있음.**
+  - `μ = -2.0` 로 arb_prior 평균 이동해 support 분리 — "arb prior 의 원래 의도 (target 근접)" 를 해침. 그러나 **support overlap 가설의 독립 검증** 으로는 가치 있음 (V3).
+  - OT coupling 을 정답으로 가정했으나 **e3 에서 반증됨** (아래 참조).
 
-- **Verification (완료)**:
+- **Verification (e2 multi-seed, 완료)**:
   - Multi-seed sweep 3×4: `experiments/e2_arbitrary_euclidean_prior/run_multiseed.sh` + `aggregate_multiseed.py`.
 
     | variant | n | tail100 mean±std | mean_err_px mean±std | max_err_px mean±std |
@@ -87,11 +87,23 @@
     | riemannian_arb_prior | 3 | 0.081 ± 0.076 | 23.27 ± 14.65 | 107.10 ± 78.23 |
     | euclidean_arb_prior | 3 | 0.257 ± 0.094 | 38.77 ± 6.24 | 149.71 ± 54.15 |
 
-  - support overlap 가설의 empirical 측정 (V1 bin-wise marginal SNR) 은 OT coupling 구현 시 회귀 테스트로 동반 추가 예정.
+- **e3 OT coupling verification (완료, 가설 기각)**: `experiments/e3_ot_coupling/`
+  - `OTCoupledTrajectory` (per-image Q×Q Hungarian) 구현 후 4×3 multi-seed sweep.
+
+    | variant | e2 (no OT) | e3 (OT) | Δ mean | Δ std |
+    |---|---|---|---|---|
+    | riemannian | 6.56 ± 4.03 | **16.14 ± 10.20** | +9.6 (❌) | +6.2 (❌) |
+    | euclidean | 6.77 ± 2.70 | **29.06 ± 6.36** | +22.3 (❌) | +3.7 (❌) |
+    | riemannian_arb_prior | 23.27 ± 14.65 | **32.11 ± 13.36** | +8.8 (❌) | −1.3 (=) |
+    | euclidean_arb_prior | 38.77 ± 6.24 | **39.31 ± 5.89** | +0.5 (=) | −0.4 (=) |
+
+  - **결과**: OT coupling 만으로 arb_prior variance 복원 **실패**. Baseline (support 분리) 에는 오히려 2.5-4× **악화**.
+  - **해석**: (1) batch=1, Q=10 setting 에서 per-image Hungarian 은 query 간 local reassignment 만 수행 — batch-level OT 의 본래 효과 제한적. (2) OT 로 좁혀진 학습 manifold 는 inference 의 random b₀ 분포와 mismatch → 외삽 실패. (3) marginal field collapse 가설은 유효하되, 해결책이 단순 coupling 개선으로는 불충분.
+  - Full report: `experiments/e3_ot_coupling/report.md`.
 
 - **Yellow box 의심 해소**: GIF 의 노란 사각형은 `script/trajectory_gif.py::make_frame` 의 **viz-only overlay**. `dataset/mnist_box.py:107` 학습 tensor 는 digit 픽셀만 붙인 깨끗한 256×256 흑백. 증거: `docs/assets/e2_raw_training_image.png`.
 
-- **Status**: open → 구조적 해결 계획 수립 완료 (`docs/plans/ot_coupling_plan.md`). Phase 3 `train.py` 구현 착수와 함께 resolved 전환.
+- **Status**: **open — 추가 탐구 필요**. OT 단독 해법 기각. 다음 후보: (a) μ=-2.0 shift (V3) 로 support 분리 독립 검증, (b) loss re-weighting [5,5,1,1] 결합, (c) batch>1 setting 에서 OT 재평가 (Phase 3). Phase 2.5 결론 (`riemannian` winner) 은 유지.
 
 ### Riemannian 결과의 **position 오차 >> size 오차** (log-scale artifact)
 - **Date**: 2026-04-22

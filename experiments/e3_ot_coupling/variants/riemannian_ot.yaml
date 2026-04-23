@@ -1,0 +1,33 @@
+# e2 / Riemannian — state N(0,I) prior + state interp (constant u_t)
+__tag__: riemannian_ot
+ot_coupling: true
+__max_steps__: 5000
+__lr__: 3.0e-4
+__lr_schedule__: cosine
+__ode_steps__: 50
+
+dataset: mnist_box
+mnist_image_size: 256
+mnist_scale_range: [14, 56]
+mnist_num_samples_train: 1
+mnist_num_samples_val: 1
+mnist_bbox_mode: fixed
+mnist_background: zero
+min_size: 256
+max_size: 256
+
+hidden_dim: 192
+num_layers: 4
+num_heads: 6
+mlp_ratio: 4
+num_queries: 10
+backbone_type: fpn
+backbone_pretrained: true
+trajectory: riemannian       # state Gaussian prior, state interp
+
+batch_size: 1
+num_workers: 0
+pin_memory: false
+weight_decay: 0.0
+grad_clip_norm: 1.0
+seed: 0
