@@ -25,39 +25,73 @@
 
 ## 🔴 Open
 
-### e2 single-seed run 결과가 **variance 극심** — "winner" 단정 불가 (특히 arb_prior)
-- **Date**: 2026-04-23
-- **Area**: train / eval
-- **Files**: `script/overfit_mnist_box.py`, `experiments/e2_arbitrary_euclidean_prior/*`
-- **Severity**: major (e2 report 결론을 뒤집음)
-- **Symptom**: 같은 config·같은 seed 로 실행해도 결과가 크게 흔들림.
-  - `run.sh` 4-variant 실행: `riemannian_arb_prior` mean_err **2.6 px** (최고).
-  - `trajectory_gif.py` (같은 scripts, 다른 process, 같은 seed): `Rm | arb prior` panel 에서 박스 10개 모두 **캔버스 중앙에 클러스터** — digit 위치를 못 찾음.
-  - `analyze_per_dim_err.py` (또 다른 reproduction): `riemannian_arb_prior` pos L2 mean **86 px** (run.sh 대비 30× 악화).
-  - `euclidean` baseline 도 run 사이 tail loss 0.078 ↔ 0.96 로 **10× variance**.
-- **User observation (GIF 판독)**: e2 의 GIF 에서 4 panel 중 `Rm | state prior` 만 digit 위치를 찾고, `Eu | state prior` 는 절반만 맞추며, `Rm | arb prior` / `Eu | arb prior` 는 **박스가 전부 중앙에 뭉친 채로 끝남**. 수치 report 의 "arb_prior 가 이긴다" 와 정면 충돌.
-- **Root cause (가설)**:
-  1. **B=1, N=1 overfit 은 매우 sensitive** — uniform `t ~ U[0,1]` 샘플링 noise 가 step 단위 loss variance 를 그대로 누적.
-  2. **cuDNN non-determinism**: `torch.manual_seed` 만으로는 GPU 커널 결과 고정 안 됨. `torch.use_deterministic_algorithms(True)` + `CUBLAS_WORKSPACE_CONFIG=:4096:8` 부재.
-  3. **Model 초기값 민감도**: 5000 step · 1-image overfit 은 basin-of-attraction 이 작을 때 일부 seed 에서 local minima 로 빠짐.
-- **Fix**: **모든 결론은 최소 3 seed mean±std 로 보고**. 구현:
-  - `experiments/e2_arbitrary_euclidean_prior/run_multiseed.sh` — 4 variant × 3 seed = 12 run (각각 독립 python process 로 RNG 고립).
-  - `aggregate_multiseed.py` — `report.json` 에서 `tail100_loss / mean_err_px / max_err_px` mean±std 집계.
-  - e2 report 의 "winner" 섹션 제거, mean±std 표로 교체.
-- **Verification (완료)**: 3 seed × 4 variant multi-seed sweep 실행 → aggregate:
+### arb_prior 가 학습 안 됨 — **independent coupling + prior/target support overlap → marginal vector field 붕괴**
+- **Date**: 2026-04-23 (open), 2026-04-23 (root cause 확정)
+- **Area**: model / train (flow matching 구조적 이슈)
+- **Files**: `model/trajectory.py:166-210`, `model/flow_matching.py:86-120`
+- **Severity**: **major** — flow matching 이 prior 변경에 robust 하지 않다는 걸 드러냄. Phase 4 이전에 구조적 해결 필요.
 
-  | variant | n | tail100_loss mean±std | mean_err_px mean±std | max_err_px mean±std |
-  |---|---|---|---|---|
-  | **riemannian** | 3 | **0.026 ± 0.004** | **6.56 ± 4.03** | 34.47 ± 30.04 |
-  | euclidean | 3 | 1.13 ± 0.84 | 6.77 ± 2.70 | 50.40 ± 32.05 |
-  | riemannian_arb_prior | 3 | 0.081 ± 0.076 | 23.27 ± 14.65 | 107.10 ± 78.23 |
-  | euclidean_arb_prior | 3 | 0.257 ± 0.094 | 38.77 ± 6.24 | 149.71 ± 54.15 |
+- **Symptom**:
+  - multi-seed sweep (3 seed × 4 variant): `riemannian_arb_prior` mean_err `[35.1, 32.1, 2.6]` px — **13.4× 흔들림**.
+  - GIF (`docs/assets/e2_frame_t_1.00.png` 3·4번째 panel): 10개 query box 가 **캔버스 중앙에 뭉친 채** digit 위치로 도달 못 함.
+  - `euclidean` baseline 은 tail loss variance 극심 (0.11 / 1.11 / 2.16) 이나 box 위치는 그래도 수렴.
+  - `riemannian` baseline 만 안정적 (tail 0.026 ± 0.004, mean_err 6.6 ± 4.0).
 
-  per-seed 상세 (mean_err_px): `riemannian_arb_prior` = [35.1, 32.1, **2.6**] — 13.4× range. 기존 "2.6 px winner" 는 seed=0 lucky run. Multi-seed 기준 winner 는 `riemannian` baseline.
+- **핵심 질문 (사용자 지적)**: riemannian/euclidean 는 잘 되는데 **"b₀ prior 만 바꾸었다"** 고 inference 가 무너지는 건 단순 tuning 이 아니라 구조적 문제가 있다는 뜻. → 맞다. 이하 원인.
 
-- **방향성 fix**: e2 report §4.2a 에 multi-seed 표 추가, §6 결론 재작성 (lucky single-seed 결론 철회). Runner 도구: `run_multiseed.sh` + `aggregate_multiseed.py`. Phase 3 `train.py` 는 seed 3+ 로 default 실행 예정.
-- **Yellow box 의심 해소**: GIF 에서 각 digit 에 보이는 노란 박스는 `script/trajectory_gif.py::make_frame` 의 **viz-only overlay** (`cv2.rectangle(canvas, ..., _GT_COLOR, 1)` — mnist_bgr 를 display canvas 에 붙인 **후** GT box 를 위에 그림). `dataset/mnist_box.py:107` 에서 학습 tensor 는 digit 픽셀만 paste 된 **깨끗한 256×256 흑백**. 증거: `outputs/e2_arbitrary_euclidean_prior/raw_training_image.png` — 실제 학습 이미지 (노란 박스 없음).
-- **Status**: investigating → resolved (이 이슈 fix 완료 후 `✅ Resolved` 로 이동).
+- **Root cause**: flow matching 의 **independent coupling** 와 arb_prior 의 **support overlap** 이 서로 곱해져 **marginal vector field 가 0 으로 붕괴**.
+
+  네트워크가 학습하는 대상:
+
+  `v*(x, t) = E[u_t | γ(t; b₀, b₁) = x]`
+
+  즉 같은 (x, t) 에 도달하는 모든 `(b₀, b₁)` 쌍의 평균. `trajectory.sample()` 은 매 step `(b₀, b₁)` 을 **독립 샘플** (= independent coupling).
+
+  **state N(0, I) prior**: `b₀.cx ∈ [-3, 3]` (이미지 밖), target `b₁.cx ∈ [0.1, 0.9]` → 두 support **거의 분리**. 임의 `x_t` 를 지나는 `(b₀, b₁)` 쌍은 대부분 "밖→안" 방향으로 일관 → `v*` 크기 유의미.
+
+  **arb_prior**: `b₀.cx ∈ [0.02, 1]`, `b₁.cx ∈ [0.1, 0.9]` → support **거의 완전히 겹침**. 예시:
+  - query i: b₀.cx=0.3, b₁.cx=0.7 → u_cx = +0.4
+  - query j: b₀.cx=0.7, b₁.cx=0.3 → u_cx = -0.4
+  - 두 trajectory 가 t=0.5 에서 같은 `x.cx ≈ 0.5` 통과.
+  
+  네트워크는 같은 `(x, t)` 에 `+0.4` 와 `-0.4` 두 값을 regression. **MSE 최적해 = 평균 = 0**. 결과:
+
+  1. `v*(center, t) ≈ 0` → ODE 가 **중앙 부근에서 정지** → GIF 의 "박스 10 개 중앙 클러스터" 그대로.
+  2. null field 에서 query 구분은 `query_embed` symmetry breaking 에 전적으로 의존 → seed 에 따라 성패 갈림 → 13× variance.
+  3. 학습 가능한 신호는 w/h dim 에만 남아 "크기는 맞추는데 위치는 못 맞춤" 의 실제 관측과 부합.
+
+  이건 **알려진 flow matching limitation** — independent coupling 의 ill-posedness. 해결 주제가 Tong et al. (2023) "Conditional Flow Matching" 과 Pooladian et al. (2023) "Multisample Flow Matching" 계열 — **mini-batch OT coupling** 으로 `(b₀, b₁)` 을 "가까운 것끼리" 짝지어 marginal field 의 평균화 효과를 제거.
+
+- **Amplifiers (부차 요인)**:
+  1. cx/cy target magnitude 붕괴 — arb_prior 의 `|u_cx|` p99 0.66 vs `|u_log_w|` p99 2.46, per-dim equal MSE → gradient 가 w/h 에 dominated. 이 이슈 단독으로는 "위치 학습 느림" 수준이지만 위의 null field 와 결합해 수렴 불가.
+  2. `model/dit.py:182-184` 의 RoPE `.clamp(0, 1)` — state prior 는 t=0 에서 clamp saturated 지만 `BoxEmbedding(b_t)` 의 raw 4D 값이 크게 달라 query 구분 OK. arb_prior 는 clamp 영향 없지만 b_t span 이 좁아 RoPE/BoxEmbedding 둘 다 약한 신호 → 학습이 `query_embed` 하나에 과의존.
+  3. B=1·5000 step overfit 민감도 — 위 구조적 null field 가 있으면 basin-of-attraction 이 좁아져 seed 간 variance 폭증.
+
+- **Fix 계획** (phase 별):
+  - **Phase 2.5 단기 해결 (불필요)**: arb_prior 실험은 이미 "coupling 결함의 증거" 로 역할 끝. `riemannian` baseline (support 분리) 을 winner 로 확정, arb prior 재시도는 OT coupling 도입 이후로 연기.
+  - **Phase 3 구조적 해결** (권장): `docs/plans/ot_coupling_plan.md` — `trajectory.sample()` 에 mini-batch OT `(b₀, b₁)` assignment 탑재. `train.py` 에 통합.
+  - **Phase 4 large-scale 검증**: VOC/COCO 에서 coupling 있을 때/없을 때 mAP 비교. Prior-agnostic robustness 확인.
+
+- **Mitigations (검토만, 채택 안 함)**:
+  - Per-dim loss weight `[5, 5, 1, 1]` — amplifier 2 만 완화, 구조적 null field 는 그대로.
+  - `μ = -2.0` 로 arb_prior 평균 이동해 support 분리 — "arb prior 의 원래 의도 (target 근접)" 를 해침. 실험적 가치 없음.
+  - OT coupling 이 정답, 나머지는 우회.
+
+- **Verification (완료)**:
+  - Multi-seed sweep 3×4: `experiments/e2_arbitrary_euclidean_prior/run_multiseed.sh` + `aggregate_multiseed.py`.
+
+    | variant | n | tail100 mean±std | mean_err_px mean±std | max_err_px mean±std |
+    |---|---|---|---|---|
+    | **riemannian** | 3 | **0.026 ± 0.004** | **6.56 ± 4.03** | 34.47 ± 30.04 |
+    | euclidean | 3 | 1.13 ± 0.84 | 6.77 ± 2.70 | 50.40 ± 32.05 |
+    | riemannian_arb_prior | 3 | 0.081 ± 0.076 | 23.27 ± 14.65 | 107.10 ± 78.23 |
+    | euclidean_arb_prior | 3 | 0.257 ± 0.094 | 38.77 ± 6.24 | 149.71 ± 54.15 |
+
+  - support overlap 가설의 empirical 측정 (V1 bin-wise marginal SNR) 은 OT coupling 구현 시 회귀 테스트로 동반 추가 예정.
+
+- **Yellow box 의심 해소**: GIF 의 노란 사각형은 `script/trajectory_gif.py::make_frame` 의 **viz-only overlay**. `dataset/mnist_box.py:107` 학습 tensor 는 digit 픽셀만 붙인 깨끗한 256×256 흑백. 증거: `docs/assets/e2_raw_training_image.png`.
+
+- **Status**: open → 구조적 해결 계획 수립 완료 (`docs/plans/ot_coupling_plan.md`). Phase 3 `train.py` 구현 착수와 함께 resolved 전환.
 
 ### Riemannian 결과의 **position 오차 >> size 오차** (log-scale artifact)
 - **Date**: 2026-04-22
